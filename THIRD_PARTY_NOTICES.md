@@ -1,6 +1,6 @@
 # Third-party notices
 
-FocusShell is MIT licensed (see LICENSE). It ships the third-party fonts and packages below,
+FocusShell is licensed under the GNU General Public License v3.0 or later (see LICENSE). It ships the third-party fonts and packages below,
 each under its own licence, reproduced here.
 
 ## Fonts under the SIL Open Font License 1.1

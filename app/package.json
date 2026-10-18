@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "One window for running Claude Code across many projects",
   "author": "Zaza Gejadze",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "main": "main.js",

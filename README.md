@@ -4,7 +4,7 @@
 
 - One window for all your Claude Code projects: you talk to one CTO session, and it hands the
   work to a lead session in each project.
-- Free and open source (MIT), for Windows 10 and 11.
+- Free and open source (GPL-3.0), for Windows 10 and 11.
 - Download `FocusShell-Setup-1.0.0.exe` from [Releases](https://github.com/ZazaGdev/FocusShell/releases) and run it.
 
 <!-- Screenshot or GIF here -->
@@ -33,5 +33,7 @@ Microsoft once. Remote Control (your sessions on claude.ai) is off unless you tu
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE); bundled parts are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Copyright (C) 2026 Zaza Gejadze. GPL-3.0-or-later: you may share and change FocusShell, and any
+version you distribute must stay open under the same licence; see [LICENSE](LICENSE). Bundled
+parts keep their own licences, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 FocusShell is not affiliated with or endorsed by Anthropic.
