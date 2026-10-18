@@ -4,8 +4,8 @@
 
 - One window for all your Claude Code projects: you talk to one CTO session, and it hands the
   work to a lead session in each project.
-- Free and open source (GPL-3.0), for Windows 10 and 11.
-- Download `FocusShell-Setup-1.0.0.exe` from [Releases](https://github.com/ZazaGdev/FocusShell/releases) and run it.
+- Free and open source (GPL-3.0), for Windows 10 and 11. Mac support is coming soon.
+- Download `FocusShell-Setup-1.0.0.exe` from [Releases](https://github.com/ZazaGdev/FocusShell/releases) and run it. Windows may show a SmartScreen warning because the app is not code-signed yet: click **More info**, then **Run anyway**.
 
 <!-- Screenshot or GIF here -->
 
