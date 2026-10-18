@@ -1,0 +1,32 @@
+/* The Code pane while VS Code starts (#1114). Kept apart from styles.css, past 800 lines. */
+.codeslot .codewait{width:min(440px,100%);max-width:440px;display:flex;flex-direction:column;gap:12px;text-align:left;color:var(--text2);font-size:12.5px;padding:18px 0;max-height:100%;overflow:auto}
+.codewait h3{margin:0;font-size:14px;color:var(--text)}
+.codewait p{margin:0}
+.cwsteps{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.cwst{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.cwst.done{color:var(--text2)}
+.cwst.now{color:var(--text);font-weight:600}
+.cwst.failed{color:var(--text);font-weight:600}
+.cwst small{margin-left:auto;color:var(--muted);font-weight:400}
+.cwic{width:16px;height:16px;flex:none;display:grid;place-items:center;font-size:12px}
+.cwst.done .cwic,.cwrq.ok .cwic{color:var(--ok)}
+.cwst.now .cwic{color:var(--accent)}
+.cwst.failed .cwic,.cwrq.bad .cwic{color:var(--bad)}
+.cwrq.info .cwic{color:var(--muted)}
+.cwspin{width:12px;height:12px;border:2px solid var(--line2);border-top-color:var(--accent);border-radius:50%;animation:cwspin 1s linear infinite}
+@keyframes cwspin{to{transform:rotate(360deg)}}
+.cwbar{height:4px;border-radius:2px;background:var(--line2);overflow:hidden}
+.cwbar i{display:block;height:100%;width:40%;background:var(--accent);animation:cwbar 1.6s ease-in-out infinite}
+@keyframes cwbar{0%{margin-left:-40%}100%{margin-left:100%}}
+.cwnote{color:var(--muted);font-size:11.5px;margin-top:4px}
+.cwtry{color:var(--warn);font-weight:600}
+.cwreq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px}
+.cwreq summary{cursor:pointer;color:var(--text2);font-weight:600}
+.cwreqs{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.cwrq{display:flex;gap:8px;align-items:flex-start}
+.cwrq .cwic{margin-top:1px}
+.cwrq b{display:block;font-weight:600;color:var(--text)}
+.cwrq span{color:var(--muted);font-size:11.5px}
+.cwerr{border:1px solid color-mix(in srgb,var(--bad) 45%,var(--line));background:color-mix(in srgb,var(--bad) 7%,var(--surface));border-radius:var(--r);padding:10px 12px}
+.cwerr b{color:var(--text)}
+.codewait .codeacts{display:flex;gap:6px;flex-wrap:wrap}

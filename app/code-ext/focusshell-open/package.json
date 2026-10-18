@@ -1,0 +1,11 @@
+{
+  "name": "open-file",
+  "displayName": "FocusShell: open clicked files",
+  "description": "Opens a file clicked in FocusShell as a new tab in this Code pane, without reloading it.",
+  "publisher": "focusshell",
+  "version": "1.0.0",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces": false }
+}

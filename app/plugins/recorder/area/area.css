@@ -1,0 +1,66 @@
+/* The recorder's overlay windows (#376): the dimmed pick screen, its tool bar, the border
+   round the recorded area and the floating bar while recording. */
+:root {
+  --dim: rgba(0, 0, 0, 0.45);
+  --bar: #202226;
+  --bar-line: #3a3d44;
+  --text: #e8e9ec;
+  --muted: #a3a7b0;
+  --hover: #2e3137;
+  --rec: #e5484d;
+  --edge: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; font: 13px/1 "Segoe UI", system-ui, sans-serif; color: var(--text); user-select: none; }
+
+/* Pick: the whole display dims; once an area is marked only the outside does. Inside the area
+   stays a hair from clear so Windows still sends the clicks here, not to the window below. */
+body.pick { background: var(--dim); cursor: crosshair; }
+body.pick.has { background: transparent; }
+#sel { position: fixed; background: rgba(0, 0, 0, 0.01); outline: 1px solid var(--edge); box-shadow: 0 0 0 100vmax var(--dim); }
+body.drag .tools { opacity: 0; pointer-events: none; }
+/* The tip under the tools (#1019), until an area is marked. */
+.tip { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; white-space: nowrap;
+  background: var(--bar); border: 1px solid var(--bar-line); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); font-size: 14px; pointer-events: none; }
+body.has .tip, body.drag .tip { display: none; }
+
+.tools { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center;
+  padding: 4px; background: var(--bar); border: 1px solid var(--bar-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); cursor: default; }
+.tbtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.tbtn:hover:not(:disabled) { background: var(--hover); }
+.tbtn:disabled { color: var(--muted); cursor: default; }
+.tbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tbtn.off { color: var(--muted); }
+.tbtn.rec:not(:disabled) { background: var(--rec); color: #fff; }
+.tbtn.rec:not(:disabled):hover { filter: brightness(1.08); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rec); flex: none; }
+.tbtn.rec .dot { background: #fff; }
+
+/* The border round the area while recording: outside it, never in the video. */
+body.border { border: 3px solid var(--rec); background: transparent; }
+
+/* The floating bar while recording. */
+body.barwin { background: transparent; }
+.tools.live { top: 0; left: 0; right: 0; bottom: 0; transform: none; padding: 4px; flex-direction: column; align-items: stretch; gap: 4px; }
+/* Two rows (#1021): time, mic and Stop on top; the drawing tools under a thin line. */
+.barrow { display: flex; align-items: center; gap: 10px; height: 30px; }
+.barrow:first-child { padding-left: 8px; }
+.tools2 { gap: 4px; padding-top: 4px; border-top: 1px solid var(--bar-line); height: 35px; }
+.tbtn.ico { padding: 0 9px; }
+.grip { display: inline-flex; align-items: center; gap: 8px; flex: 1; height: 100%; -webkit-app-region: drag; cursor: move; }
+.grip .dot { animation: blink 1.2s steps(2, start) infinite; }
+.time { font-variant-numeric: tabular-nums; min-width: 34px; }
+.mic { color: var(--muted); }
+.mic.off { text-decoration: line-through; }
+.tbtn.stop { background: var(--hover); }
+.tbtn.stop:hover { background: var(--rec); color: #fff; }
+@keyframes blink { to { visibility: hidden; } }
+.tbtn.pentgl.on { background: var(--ink); color: #fff; }
+
+/* The drawing layer over the area (#380), recorded with it. With the pen on it is a hair from
+   clear, so Windows sends the mouse here and not to the app below. */
+:root { --ink: #ff2b2b; }
+body.drawwin { background: transparent; }
+body.drawwin.pen { background: rgba(0, 0, 0, 0.01); cursor: crosshair; }
+#ink { position: fixed; inset: 0; width: 100%; height: 100%; }

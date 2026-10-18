@@ -1,0 +1,65 @@
+/* Settings > Preferences (#1026): the themes besides Graphite, whose tokens are the defaults
+   on :root in styles.css and panes.css. Each overrides only the colours; the app
+   sets data-theme on <html>, and each Preferences swatch carries its own. Kept apart from styles.css, which is past 800 lines. */
+[data-theme="graphite-light"]{
+  --bg:#fafafa; --chrome:#f2f2f3; --surface:#ffffff; --surface2:#f4f4f5; --pane:#ffffff; --well:#e6e6e9;
+  --line:#e7e7ea; --line2:#d9d9de; --text:#18181b; --text2:#3f3f46; --muted:#8a8a93;
+  --accent:#5b5bd6; --accent-ink:#ffffff; --ok:#2f9e66; --warn:#b7791f; --bad:#d14343; --work:#5b5bd6;
+}
+[data-theme="paper"]{
+  --bg:#f4f1ea; --chrome:#ebe7de; --surface:#fbf9f4; --surface2:#f1ede4; --pane:#fbf9f4; --well:#e2ddd2;
+  --line:#e0dbcf; --line2:#cfc8b8; --text:#1c1a16; --text2:#3d3a33; --muted:#857f73;
+  --accent:#9a3b1c; --accent-ink:#ffffff; --ok:#3f7d4e; --warn:#a86b00; --bad:#b0302a; --work:#9a3b1c;
+}
+[data-theme="nord"]{
+  --bg:#2e3440; --chrome:#2a2f3a; --surface:#3b4252; --surface2:#434c5e; --pane:#292e39; --well:#242933;
+  --line:#3b4252; --line2:#4c566a; --text:#eceff4; --text2:#d8dee9; --muted:#8a93a6;
+  --accent:#88c0d0; --accent-ink:#1d2a30; --ok:#a3be8c; --warn:#ebcb8b; --bad:#bf616a; --work:#88c0d0;
+}
+[data-theme="tokyo"]{
+  --bg:#1a1b26; --chrome:#16161e; --surface:#1f2335; --surface2:#24283b; --pane:#16161e; --well:#111118;
+  --line:#232433; --line2:#2f3349; --text:#c0caf5; --text2:#a9b1d6; --muted:#646b8f;
+  --accent:#7aa2f7; --accent-ink:#0f1630; --ok:#9ece6a; --warn:#e0af68; --bad:#f7768e; --work:#7aa2f7;
+}
+[data-theme="rosepine"]{
+  --bg:#232136; --chrome:#1f1d2e; --surface:#2a273f; --surface2:#393552; --pane:#1f1d2e; --well:#19172a;
+  --line:#2f2b45; --line2:#44415a; --text:#e0def4; --text2:#c5c2dd; --muted:#7c789a;
+  --accent:#c4a7e7; --accent-ink:#23173a; --ok:#9ccfd8; --warn:#f6c177; --bad:#eb6f92; --work:#c4a7e7;
+}
+[data-theme="catppuccin"]{
+  --bg:#1e1e2e; --chrome:#181825; --surface:#24243a; --surface2:#313244; --pane:#181825; --well:#11111b;
+  --line:#2a2a3c; --line2:#3b3b52; --text:#cdd6f4; --text2:#bac2de; --muted:#7f849c;
+  --accent:#cba6f7; --accent-ink:#251a36; --ok:#a6e3a1; --warn:#f9e2af; --bad:#f38ba8; --work:#cba6f7;
+}
+[data-theme="slate"]{
+  --bg:#0f141a; --chrome:#0c1015; --surface:#151c24; --surface2:#1c252f; --pane:#0c1015; --well:#080b0f;
+  --line:#212b36; --line2:#2c3845; --text:#e6edf3; --text2:#adbac7; --muted:#6b7a8a;
+  --accent:#5eb3c7; --accent-ink:#06222a; --ok:#57ab5a; --warn:#c69026; --bad:#e5534b; --work:#5eb3c7;
+}
+[data-theme="sand"]{
+  --bg:#1a1816; --chrome:#161412; --surface:#211e1b; --surface2:#2a2622; --pane:#141210; --well:#0f0e0c;
+  --line:#2a2622; --line2:#37322c; --text:#ece6dc; --text2:#c9c0b2; --muted:#857b6d;
+  --accent:#d4a373; --accent-ink:#2a1a08; --ok:#93b881; --warn:#d9a648; --bad:#d9735f; --work:#d4a373;
+}
+[data-theme="forest"]{
+  --bg:#0f1412; --chrome:#0c100e; --surface:#151c18; --surface2:#1b241f; --pane:#0b0f0d; --well:#070a09;
+  --line:#1f2a24; --line2:#2a372f; --text:#e3ece6; --text2:#b3c2b8; --muted:#6d7f73;
+  --accent:#7fb685; --accent-ink:#0d2412; --ok:#7fb685; --warn:#d6b45c; --bad:#d97a6c; --work:#7fb685;
+}
+/* Light themes keep the terminals dark (Claude Code draws its colours for a dark one). A
+   terminal is transparent, so the box holding it carries the colour. */
+[data-theme="graphite-light"], [data-theme="paper"]{--term:#0b0b0c}
+.body:has(.termhost){background:var(--term,transparent)}
+
+/* The theme picker on Settings > Preferences: a small swatch of each theme's own colours.
+   Graphite's tokens live on :root, so its swatch repeats them for when another theme is on. */
+.themepick[data-theme="graphite"]{--bg:#0e0e10;--surface:#151517;--surface2:#1b1b1e;--line:#222226;--line2:#2c2c31;--text:#ededef;--text2:#b4b4ba;--muted:#6e6e76;--accent:#9b9bf0}
+.themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;width:100%}
+.themepick{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line2);border-radius:var(--r);background:var(--surface);text-align:left;color:var(--text2)}
+.themepick:hover{border-color:var(--muted)}
+.themepick.on{border-color:var(--accent);color:var(--text);box-shadow:0 0 0 1px var(--accent)}
+.themepick .sw3{display:flex;height:26px;border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--line)}
+.themepick .sw3 i{flex:1}
+.themepick .sw3 i:last-child{flex:.6}
+.prefs .opt{align-items:flex-start}
+.prefs .opt > div:last-child{flex:1;display:flex;justify-content:flex-end}

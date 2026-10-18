@@ -1,0 +1,73 @@
+/* The recorder's screens (#369), linked by its page side when it mounts. */
+.plugbtn[data-plugin="recorder"][data-state="active"] .i path{fill:currentColor}
+/* #401: a ring turns round the dot while it works in the background; the count is a badge, like Tavern's. */
+.plugbtn[data-plugin="recorder"]{position:relative}
+.plugbtn[data-plugin="recorder"][data-state="busy"] .i{border-radius:50%;border:1.5px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:recspin .9s linear infinite}
+@keyframes recspin{to{transform:rotate(360deg)}}
+.plugbtn[data-plugin="recorder"][data-state="attention"] .plugl:not(:empty){position:absolute;top:-4px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--miss);color:var(--accent-ink);font-size:10.5px;line-height:16px;font-weight:700;text-align:center}
+/* #384: the title bar circle shows only while a recording is running or waiting; Plugins starts one. */
+.plugbtn[data-plugin="recorder"][data-state="idle"]{display:none}
+.recpast{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.recpast h4{margin:0 0 4px;font-size:13px}
+.recpasthd{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.recpasthd h4{margin:0}
+.recdelall{display:inline-flex;align-items:center;gap:6px}
+.recdelall:hover{border-color:var(--bad);color:var(--bad)}
+.recpastrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.recpastrow .recwhen{min-width:150px;font-variant-numeric:tabular-nums}
+.recpastrow .sub{flex:1}
+.recpastrow{padding:8px 0;border-top:1px solid var(--line)}
+.recpastrow .recacts{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap}
+.recpastrow .recopen{display:inline-flex;align-items:center;gap:6px}
+.recpastrow .recopen .i{width:13px;height:13px}
+/* #394: on its Plugins screen, Stop recording reads as stopping. */
+.plugstart[data-plugin="recorder"][data-state="active"]{background:var(--bad);border-color:var(--bad);color:#1a0b0b}
+.recwrap{display:flex;flex-direction:column;gap:14px;max-width:900px}
+.recsaved .plugrow{justify-content:flex-start}
+.recsteps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:var(--text2)}
+.recsteps li.ok{color:var(--muted);text-decoration:line-through}
+.recsteps li.now{color:var(--text)}
+.reclines{display:flex;flex-direction:column;gap:6px}
+.recline{margin:0;line-height:1.5}
+.recline time{display:inline-block;min-width:52px;color:var(--muted);font-variant-numeric:tabular-nums}
+.reckeep{display:flex;gap:8px;align-items:center;color:var(--text2)}
+/* The review (stage 3): cards in a grid like Waiting on you. */
+.recwrap:has(.recreview){max-width:none}
+.recbar{justify-content:flex-end;flex-wrap:wrap}
+.recgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start}
+.recreview.busy{opacity:.7}
+.plugcard .wbmeta{flex-wrap:wrap}
+.reckind{font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+.recat{font-variant-numeric:tabular-nums}
+.plugcard .inp{font:inherit;border:1px solid var(--line2);border-radius:var(--r-sm);padding:5px 9px;color:var(--text);background:var(--bg);color-scheme:dark}
+.plugcard .inp:focus{border-color:var(--accent);outline:0}
+.recsel{padding:2px 6px;font-size:12px;max-width:150px}
+.wbmeta .recsel:first-of-type{margin-left:auto}
+.rectitle{width:100%;font-weight:600}
+.recdue{display:flex;gap:8px;align-items:center;color:var(--text2);font-size:12.5px}
+.recmerge{margin:0;font-size:12.5px;color:var(--text2)}
+.recshots{display:flex;gap:8px;flex-wrap:wrap}
+.recshot{position:relative;margin:0}
+.recthumb{padding:0;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--bg);cursor:zoom-in;display:block}
+.recthumb img{display:block;width:112px;height:63px;object-fit:cover}
+.recshotx{position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;background:var(--surface);border:1px solid var(--line2)}
+.recsaid{margin:0;font-size:12.5px;color:var(--text2);font-style:italic}
+.recsaid span{font-style:normal;color:var(--muted)}
+.recdropped{opacity:.55}
+.recdropped .recmark{opacity:1}
+/* Stage 4: a brainstorm's mark on a card, and the brainstorm panel beside the cards. */
+.recmark{display:inline-flex;gap:6px;align-items:center;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--text2)}
+.recmark.m-rewritten{color:var(--accent);border-color:var(--accent)}
+.recmark.m-merged{color:var(--warn);border-color:var(--warn)}
+.recmark.m-dropped{color:var(--muted)}
+.recmark.m-added{color:var(--ok);border-color:var(--ok)}
+.reclink{padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:500;text-decoration:underline;cursor:pointer}
+.reclink:disabled{cursor:default;opacity:.6}
+.recsplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,44%);gap:16px;align-items:stretch}
+.recsplit .recgrid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.recbs{display:flex;flex-direction:column;gap:8px;min-height:60vh;border:1px solid var(--line2);border-radius:var(--r-sm);padding:8px;background:var(--bg)}
+.recbs header{display:flex;gap:8px;align-items:center}
+.recbs header h3{margin:0;font-size:13px;flex:1}
+.recterm{flex:1;min-height:420px;position:relative}
+.recterm .termhost{position:absolute;inset:0}
+.reczoom{display:block;max-width:100%;max-height:78vh;margin:0 auto;border-radius:6px}

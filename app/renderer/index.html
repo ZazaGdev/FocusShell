@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="graphite">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; worker-src 'self' blob:">
+<title>FocusShell</title>
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="panes.css">
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="setup.css">
+<link rel="stylesheet" href="codewait.css">
+<link rel="stylesheet" href="requirements.css">
+<link rel="stylesheet" href="plugins.css">
+</head>
+<body>
+<div id="titlebar">
+  <div id="tabs"></div>
+  <div class="wrap">
+    <button class="iconbtn" id="btnNew" title="Open a project session"></button>
+    <div class="pop left" id="newmenu"></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="ctrls">
+    <button class="iconbtn" id="btnSettings" title="Settings"></button>
+    <div class="wrap">
+      <button class="iconbtn" id="btnLayout" title="Snap layouts"></button>
+      <div class="pop" id="layouts">
+        <h4>Snap layout. Ctrl+click tabs to choose which sessions fill it.</h4>
+        <div class="lgrid" id="lgrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="main">
+  <div id="side"></div>
+  <div id="pmdock"></div>
+  <div id="home"></div>
+  <div id="stage"></div>
+</div>
+<div id="status"></div>
+<div id="toasts"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

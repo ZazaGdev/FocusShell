@@ -1,0 +1,11 @@
+state/
+app/node_modules/
+app/dist/
+mockup/sketch/node_modules/
+mockup/sketch/dist/
+mockup/sketch/public/fonts/
+app/renderer/sketch/
+/deck.mjs
+tavern/node_modules/
+app/renderer/tavern/room/
+app/build/seed/

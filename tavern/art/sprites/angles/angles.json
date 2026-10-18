@@ -1,0 +1,78 @@
+{
+ "focus-shell": [
+  "side",
+  "back"
+ ],
+ "ai-fun": [
+  "side",
+  "back"
+ ],
+ "barkeep": [
+  "side",
+  "back"
+ ],
+ "budget-expense-tracker": [
+  "side",
+  "back"
+ ],
+ "builder": [
+  "side",
+  "back"
+ ],
+ "compass": [
+  "side",
+  "back"
+ ],
+ "claude-setup": [
+  "side",
+  "back"
+ ],
+ "cto": [
+  "side",
+  "back"
+ ],
+ "general-1": [
+  "side",
+  "back"
+ ],
+ "gym": [
+  "side",
+  "back"
+ ],
+ "helper": [
+  "side",
+  "back"
+ ],
+ "helper-2": [
+  "side",
+  "back"
+ ],
+ "personal": [
+  "side",
+  "back"
+ ],
+ "pm": [
+  "side",
+  "back"
+ ],
+ "research": [
+  "side",
+  "back"
+ ],
+ "web": [
+  "side",
+  "back"
+ ],
+ "spare": [
+  "side",
+  "back"
+ ],
+ "spare-1": [
+  "side",
+  "back"
+ ],
+ "video-editor": [
+  "side",
+  "back"
+ ]
+}

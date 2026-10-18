@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tavern Art Demos</title>
+<style>
+  :root { --bg: #14100f; --panel: #221915; --line: #4a3427; --text: #f3e6cc; --muted: #b59c80; --accent: #f0a640; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 4px 0 4px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--accent); }
+  p { color: var(--muted); margin: 4px 0 10px; max-width: 900px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-width: 100%; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 6px; max-width: 640px; }
+  figcaption b { color: var(--text); font-size: 13px; }
+  canvas { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pixel Tavern: art direction demos (#244)</h1>
+  <p>Everything here is drawn in code from one palette, for comparison only. No Stardew Valley or Travellers Rest art was copied or used as input. It shows size, density and lighting, not final art quality.</p>
+  <div class="bar"><button id="night" class="on">Evening light</button><button id="anim" class="on">Animate</button></div>
+  <section id="sections"></section>
+</main>
+<script type="module" src="demo.js"></script>
+</body>
+</html>

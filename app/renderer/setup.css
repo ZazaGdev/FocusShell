@@ -1,0 +1,73 @@
+/* The first-run setup and Connect your projects (#1061). Kept apart from styles.css, which is
+   past 800 lines. */
+
+/* During setup the window is the wizard under a slim title bar: Settings and the Demo's
+   buttons only. */
+body.startonly #tabs, body.startonly #titlebar > .wrap, body.startonly #titlebar .ctrls > :not(#btnSettings):not([data-start]),
+body.startonly #side, body.startonly #pmdock, body.startonly #status{display:none!important}
+body.startonly #main{bottom:0}
+body.startonly #home{inset:0!important;padding:0}
+
+.setup{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.setupcard{width:min(520px,100%);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px 28px 18px}
+.setupdots{display:flex;gap:6px;margin-bottom:14px}
+.setupdots i{height:4px;flex:1;border-radius:2px;background:var(--line2)}
+.setupdots i.on{background:var(--accent)}
+.setupn{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.setupcard h1{font-size:19px;margin:4px 0 8px}
+.setupcard p{color:var(--text2);margin:0 0 14px}
+.setupnames{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:2px 0 4px}
+.setupnames span{display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:2px 9px;font-size:11.5px;color:var(--text2)}
+.setupnames .tagx{display:inline-grid;place-items:center;width:16px;height:16px;margin-right:-5px;border-radius:3px;color:var(--muted)}
+.setupnames .tagx:hover{color:var(--text);background:var(--surface2)}
+.setupnames .tagx .i{width:11px;height:11px}
+.setupchk{display:flex;gap:10px;align-items:flex-start;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
+.setupchk i{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none;background:var(--muted)}
+.setupchk.ok i{background:var(--ok)} .setupchk.warn i{background:var(--warn)} .setupchk.bad i{background:var(--bad)}
+.setupchk b{display:block;color:var(--text)} .setupchk span{color:var(--muted)}
+.setupfoot{display:flex;align-items:center;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.setupfoot .sp{flex:1}
+.art{display:flex;justify-content:center;margin:2px 0 10px}
+.art svg{width:240px;height:110px;max-width:100%}
+
+/* The walkthrough (#1036): a ring around one part, the rest dimmed, and a card beside it. */
+.tour{position:fixed;inset:0;z-index:90}
+.tourspot{position:fixed;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.62);outline:2px solid var(--accent);pointer-events:none}
+.tourtip{position:fixed;width:300px;background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:14px 16px 12px;box-shadow:0 12px 40px #000a}
+.tourn{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.tourtip h3{margin:2px 0 4px;font-size:14px}
+.tourtip p{margin:0 0 12px;color:var(--text2)}
+.tourfoot{display:flex;align-items:center;gap:6px}
+.tourfoot .sp{flex:1}
+
+/* Settings > Projects (#1115): a full-width row per project with its folder, model and remove. */
+.plist{display:flex;flex-direction:column;margin-top:4px}
+.plhead{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.plhead b{color:var(--text)}
+.plhead span{color:var(--muted);font-size:11.5px}
+.plrow{display:flex;align-items:center;gap:10px;padding:7px 8px 7px 12px;border:1px solid var(--line);border-top:0;background:var(--bg);min-height:42px}
+.plrow:first-of-type,.plhead + .plrow{border-top:1px solid var(--line);border-radius:var(--r) var(--r) 0 0}
+.plrow:last-child{border-radius:0 0 var(--r) var(--r)}
+.plrow:hover{background:var(--surface2)}
+.plname{font-weight:600;color:var(--text);min-width:130px}
+.plpath{flex:1;min-width:0;color:var(--muted);font-size:11.5px;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plmodel{width:110px;flex:none}
+.plx{width:26px;height:26px;flex:none;border-radius:var(--r);color:var(--muted);font-size:15px;display:grid;place-items:center}
+button.plx:hover{color:var(--bad);background:var(--surface2)}
+.plask{background:color-mix(in srgb,var(--bad) 6%,var(--bg))}
+.plask-t{flex:1;color:var(--text)}
+.pladd{background:transparent}
+.pladd .bempty{align-items:flex-start;padding:0;min-height:0}
+@media (max-width:640px){.plrow{flex-wrap:wrap}.plpath{flex-basis:100%;order:3}.plname{min-width:0;flex:1}}
+
+/* In-app updates (#1088): the title bar's Update ready button. */
+.updbtn{color:var(--accent)!important}
+.updbtn:hover{color:var(--text)!important}
+
+/* Connect your projects: on an empty Board, in the setup and in Settings. */
+.bempty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:260px;padding:40px 16px;text-align:center}
+.bempty.bare{min-height:0;padding:4px 0 10px}
+.bempty p{margin:0;color:var(--text2);font-size:13.5px}
+.bempty-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.bempty-acts .btn{height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px}
+.rootpick .bempty{min-height:0;padding:0}

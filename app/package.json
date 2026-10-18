@@ -1,0 +1,113 @@
+{
+  "name": "focusshell",
+  "productName": "FocusShell",
+  "version": "1.0.0",
+  "description": "One window for running Claude Code across many projects",
+  "author": "Zaza Gejadze",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "try": "electron . --try",
+    "test": "node --test lib/lib.test.js",
+    "dist": "npm run sketch && npm run room && npm run seed && electron-builder --win nsis",
+    "pack": "npm run sketch && npm run room && npm run seed && electron-builder --win dir",
+    "sketch": "vite build --config sketch/vite.config.js",
+    "postinstall": "npm run sketch && npm run room && node build/name-electron.cjs",
+    "room": "node build/copy-room.mjs",
+    "seed": "node build/seed.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/xterm": "6.0.0",
+    "electron-updater": "6.8.9",
+    "node-pty": "1.1.0",
+    "phaser": "4.2.1"
+  },
+  "devDependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "vite": "8.3.2"
+  },
+  "build": {
+    "appId": "FocusShell",
+    "productName": "FocusShell",
+    "publish": {
+      "provider": "github",
+      "owner": "ZazaGdev",
+      "repo": "FocusShell",
+      "releaseType": "release"
+    },
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "me-files.js",
+      "helper.js",
+      "catchup.js",
+      "setup-check.js",
+      "updater.js",
+      "project-page.js",
+      "code-web.js",
+      "missed.js",
+      "lead-status.js",
+      "window-guard.js",
+      "requests.js",
+      "global-talk.js",
+      "commits.js",
+      "plugins-host.js",
+      "plugin-services.js",
+      "deck.mjs",
+      "preload.cjs",
+      "package.json",
+      "lib/**",
+      "!lib/*.test.js",
+      "renderer/**",
+      "code-ext/**",
+      "plugins/**",
+      "build/copy-room.mjs",
+      "build/icon.ico",
+      "build/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "build/seed",
+        "to": "seed"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FocusShell",
+      "uninstallDisplayName": "${productName}",
+      "artifactName": "FocusShell-Setup-${version}.exe"
+    }
+  }
+}
