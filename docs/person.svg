@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 150" role="img" aria-label="You, at a laptop">
+  <path d="M30 140c0-38 22-62 50-62s50 24 50 62z" fill="#4a4a64"/>
+  <path d="M66 80l14 16 14-16" fill="none" stroke="#5e5e7c" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="71" y="62" width="18" height="18" rx="6" fill="#cbc6d6"/>
+  <circle cx="80" cy="42" r="22" fill="#d9d4e2"/>
+  <path d="M57 42c0-15 10-24 23-24s23 9 23 24c-5-8-13-11-23-11s-18 3-23 11z" fill="#3b354f"/>
+  <rect x="38" y="92" width="84" height="50" rx="6" fill="#1d1d25" stroke="#3a3a48" stroke-width="2"/>
+  <rect x="74" y="111" width="12" height="12" rx="3" fill="#a3a3f5"/>
+  <rect x="12" y="140" width="136" height="6" rx="3" fill="#2c2c36"/>
+</svg>

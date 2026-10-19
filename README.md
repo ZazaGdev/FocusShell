@@ -7,7 +7,9 @@
 - Free and open source (GPL-3.0), for Windows 10 and 11. Mac support is coming soon.
 - Download `FocusShell-Setup-1.0.0.exe` from [Releases](https://github.com/ZazaGdev/FocusShell/releases) and run it. Windows may show a SmartScreen warning because the app is not code-signed yet: click **More info**, then **Run anyway**.
 
-<!-- Screenshot or GIF here -->
+![You talk to one CTO; it hands tasks to a lead in each project, and their reports and questions come back to you through the CTO](docs/hub.png)
+
+More on how it works: [zazagdev.github.io/FocusShell](https://zazagdev.github.io/FocusShell/)
 
 ## Install
 
