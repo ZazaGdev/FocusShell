@@ -11,6 +11,8 @@
 
 More on how it works: [zazagdev.github.io/FocusShell](https://zazagdev.github.io/FocusShell/)
 
+[![YouTube](docs/youtube.svg) Watch the demo](https://www.youtube.com/watch?v=t_WVO-hzF2w)
+
 ## Install
 
 1. Download the installer from [Releases](https://github.com/ZazaGdev/FocusShell/releases).
