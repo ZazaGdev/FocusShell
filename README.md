@@ -9,7 +9,7 @@
 
 ![You talk to one CTO; it hands tasks to a lead in each project, and their reports and questions come back to you through the CTO](docs/hub.png)
 
-More on how it works: [zazagdev.github.io/FocusShell](https://zazagdev.github.io/FocusShell/)
+More on how it works: [zazag.dev/apps/focusshell](https://zazag.dev/apps/focusshell/)
 
 [![YouTube](docs/youtube.svg) Watch the demo](https://www.youtube.com/watch?v=t_WVO-hzF2w)
 
