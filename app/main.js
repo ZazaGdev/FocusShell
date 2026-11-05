@@ -19,7 +19,7 @@ import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, r
 import { isWin, loginPath } from './lib/shell.js';
 import { isAbsPath, onDisk } from './lib/localpath.js';
 import { imagePasteKey } from './lib/platform.js';
-import { ACCESSIBILITY } from './lib/keystate.js';
+import { ACCESSIBILITY, dictateScript } from './lib/keystate.js';
 import { tellOnce } from './permission-note.js';
 import { normalizeGroups, findGroup, managerFor, groupOfMgr, isMgr } from './lib/groups.js';
 import { addTaskLine, addNoteLine, newAlerts, holdAlerts, dueAlerts, seenAlerts, parseTasks } from './lib/tasks.js';
@@ -672,22 +672,12 @@ while ($null -ne [Console]::In.ReadLine()) {
 }`;
 let voicePs = null;
 const bar = voiceBar(); // pressed only when it changes the bar (#1083)
-// On a Mac (#2562) the same toggle is the Edit menu's Start Dictation / Stop Dictation, clicked
+// On a Mac (#2562) it is the Edit menu's Start Dictation, or Stop Dictation to end it, clicked
 // through System Events, which needs the Accessibility permission; without it the owner is told.
-const DICTATE = `tell application "System Events" to tell (first process whose unix id is ${process.pid})
-  tell menu "Edit" of menu bar item "Edit" of menu bar 1
-    if exists menu item "Start Dictation…" then
-      click menu item "Start Dictation…"
-    else if exists menu item "Start Dictation..." then
-      click menu item "Start Dictation..."
-    else if exists menu item "Stop Dictation" then
-      click menu item "Stop Dictation"
-    end if
-  end tell
-end tell`;
-const dictate = () => { execFile('osascript', ['-e', DICTATE], { timeout: 10000 }, err => { if (err) tellOnce(ACCESSIBILITY); }); return true; };
-const winH = () => {
-  if (!WIN) return dictate();
+// start: whether this press starts the voice (Windows' Win+H toggles, so it ignores it).
+const dictate = start => { execFile('osascript', ['-e', dictateScript(process.pid, start)], { timeout: 10000 }, err => { if (err) tellOnce(ACCESSIBILITY); }); return true; };
+const winH = (start = true) => {
+  if (!WIN) return dictate(start);
   if (!voicePs || voicePs.exitCode !== null) {
     voicePs = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(VOICE_PS, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
     voicePs.on('error', () => { voicePs = null; });
@@ -699,10 +689,10 @@ ipcMain.handle('voice:type', () => { if (SMOKE) return true; if (bar.open() && !
 // voice typing bar this app opened, so it does not sit on screen afterwards (#415).
 // The focus log (#1003): one line each time a pane loses the keyboard, while the switch is on.
 ipcMain.on('focus:log', (_e, line) => { try { fs.appendFileSync(path.join(SMOKE ? P.smoke : P.state, 'focus-log.txt'), String(line).slice(0, 2000) + '\n'); } catch { /* best effort */ } });
-ipcMain.handle('voice:stop', () => { if (SMOKE || !bar.close()) return false; return winH(); });
+ipcMain.handle('voice:stop', () => { if (SMOKE || !bar.close()) return false; return winH(false); });
 // A bar still open when FocusShell quits or its page reloads would otherwise outlive the box
 // that opened it and greet the owner at the next start (#1015): close it first.
-const voiceClose = () => { if (bar.close()) winH(); };
+const voiceClose = () => { if (bar.close()) winH(false); };
 app.on('will-quit', () => {
   // With a last Win+H queued, ending its input lets the PowerShell press it and exit by itself.
   if (voicePs) try { if (bar.isOpen) { voiceClose(); voicePs.stdin.end(); } else voicePs.kill(); } catch { /* gone */ }

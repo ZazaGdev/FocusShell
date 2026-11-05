@@ -109,6 +109,7 @@ jobs:
           test -x "$PTY/spawn-helper" || { echo "the packed spawn-helper is not executable"; exit 1; }
           echo "spawn-helper is executable"
           lipo -archs "$APP/Contents/Resources/app/native/bin/keystate"
+          test -x "$APP/Contents/Resources/app/native/bin/keystate" || { echo "the packed key helper is not executable"; exit 1; }
           ls -la dist/*.dmg dist/*.zip
 
       # Installs the .dmg as a person would (quarantined, as a download is), lets Gatekeeper say

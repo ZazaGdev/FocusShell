@@ -52,6 +52,15 @@ test('the recorder finds whisper-cli and ffmpeg without .exe on a Mac, under ~/'
   fs.rmSync(w, { recursive: true, force: true });
 });
 
+test('the card mic only starts Dictation when starting, and only stops it when stopping', async () => {
+  const { dictateScript, ACCESSIBILITY } = await import('./keystate.js');
+  const start = dictateScript(4242, true), stop = dictateScript(4242, false);
+  assert.match(start, /Start Dictation/); assert.doesNotMatch(start, /Stop Dictation/);
+  assert.match(stop, /Stop Dictation/); assert.doesNotMatch(stop, /Start Dictation/);
+  assert.match(start, /unix id is 4242/); assert.match(stop, /unix id is 4242/);
+  assert.match(ACCESSIBILITY, /Privacy & Security > Accessibility/);
+});
+
 test('the Mac key helper says first whether it may read the keyboard', () => {
   assert.deepEqual(helloLine('ok\n'), { ok: true });
   assert.deepEqual(helloLine('noperm'), { ok: false, why: INPUT_MONITORING });
