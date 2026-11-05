@@ -44,6 +44,15 @@ test('the smoke run\'s cmd-style lines run as sh lines on a Mac', () => {
   assert.deepEqual(posixSpawn(['/c', 'echo No conversation found; exit 1'], '/bin/sh').line, ['-c', 'echo No conversation found; exit 1', '/bin/sh']);
 });
 
+test('the smoke run\'s cmd lines are said in sh\'s words on a Mac', async () => {
+  const { shLine } = await import('./smokeshell.js');
+  assert.equal(shLine('cls\r'), 'clear\r');
+  assert.equal(shLine('cls & echo  Do you want to proceed? & echo  ^> 1. Yes\r'), "clear; echo ' Do you want to proceed?'; echo ' > 1. Yes'\r");
+  assert.equal(shLine("echo it's\r"), "echo 'it'\\''s'\r");
+  assert.equal(shLine('typed-1387'), 'typed-1387', 'text typed into a prompt goes as it is');
+  assert.equal(shLine('\x1b'), '\x1b');
+});
+
 test('a Mac finds a tool on PATH by its bare name', () => {
   // A folder relative to here, so its name holds no drive colon when this runs on Windows.
   const d = fs.mkdtempSync('onpath-');

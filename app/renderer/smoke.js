@@ -20,9 +20,12 @@ import { finishedCounts } from '../lib/tavern/finished.js';
 import { navForSmoke } from './nav.js';
 import { recorderSmoke } from '../plugins/recorder/smoke.js';
 import { showMissing } from './requirements.js';
-import { MOD_PROP } from '../lib/platform.js';
+import { MOD_PROP, MAC } from '../lib/platform.js';
+import { shLine } from '../lib/smokeshell.js';
 
-const deck = window.deck;
+// The fake sessions are cmd on Windows and sh on a Mac (#2562): the lines this run types in cmd's
+// words ("cls & echo  ^> 1. Yes") are said in sh's there.
+const deck = MAC ? { ...window.deck, write: (id, d) => window.deck.write(id, shLine(d)) } : window.deck;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 // Waits for the Sketch board, then draws one stroke on it.
 async function drawOnBoard() {

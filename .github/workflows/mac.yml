@@ -58,6 +58,8 @@ jobs:
         continue-on-error: true
         env:
           FOCUSSHELL_SMOKE_MINUTES: '20'
+          # A Mac's login shell, as on a new Mac (the runner's own is bash).
+          SHELL: /bin/zsh
         run: |
           mkdir -p ../state
           npx electron . --smoke 2>&1 | tail -40 | tee ../state/smoke-console.txt
