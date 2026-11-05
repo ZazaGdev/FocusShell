@@ -61,11 +61,12 @@ jobs:
           brew install --cask visual-studio-code
           test -x "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
-      # The smoke run switches between several projects, and lists the folders beside the
-      # checkout as projects; on the runner only FocusShell is there, so three small ones join it.
+      # The smoke run switches between several projects and opens ones not open yet, and lists
+      # the folders beside the checkout as projects; on the runner only FocusShell is there, so
+      # five small ones join it.
       - name: Projects beside the checkout
         run: |
-          for p in Habitly NoteNest RecipeScale; do
+          for p in Habitly NoteNest RecipeScale FocusTimer Papers; do
             d="$GITHUB_WORKSPACE/../$p"; mkdir -p "$d"
             printf '# %s\n\nA small demo project for the smoke run.\n' "$p" > "$d/README.md"
             git -C "$d" init -q && git -C "$d" add -A && git -C "$d" -c user.name=smoke -c user.email=smoke@example.com commit -q -m "first"
