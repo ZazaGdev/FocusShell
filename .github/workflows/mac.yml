@@ -41,7 +41,8 @@ jobs:
           lipo -archs native/bin/keystate
 
       - name: node-pty's helper can run
-        run: test -x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper || { echo "spawn-helper is not executable: no pane can start"; exit 1; }
+        run: |
+          test -x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper || { echo "spawn-helper is not executable, so no pane can start"; exit 1; }
 
       # The Code pane needs VS Code installed (chunk 6).
       - name: VS Code
