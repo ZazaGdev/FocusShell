@@ -1,0 +1,112 @@
+# FocusShell for Mac (#2562): builds the unsigned Apple Silicon app on GitHub's free macOS
+# runner (free on a public repo), runs the unit tests and the smoke run, checks the bundle, then
+# installs the .dmg on the runner's Mac and opens it. Nothing is published: the .dmg, its
+# SHA-256, the screenshots and the logs are this run's artifacts.
+name: mac
+
+on:
+  push:
+    branches: [mac-dev]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp on the build
+        default: 2.1.0
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version || '2.1.0' }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Key helper
+        run: |
+          npm run keystate
+          lipo -archs native/bin/keystate
+
+      # The smoke run uses fake sessions (no Claude); its failures are read from the log and
+      # the screenshots, so this step never stops the build.
+      - name: Smoke run
+        continue-on-error: true
+        env:
+          FOCUSSHELL_SMOKE_MINUTES: '20'
+        run: |
+          npx electron . --smoke 2>&1 | tail -40
+          echo "FAILED lines: $(grep -c '^FAILED' ../state/smoke/log.txt || true)"
+          grep '^FAILED' ../state/smoke/log.txt | head -60 || true
+
+      - name: Build
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run dist:mac
+
+      - name: Check the bundle
+        run: |
+          APP="dist/mac-arm64/FocusShell.app"
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | head -5
+          PTY="$APP/Contents/Resources/app/node_modules/node-pty/prebuilds/darwin-arm64"
+          lipo -archs "$PTY/pty.node"
+          test -x "$PTY/spawn-helper" && echo "spawn-helper is executable"
+          lipo -archs "$APP/Contents/Resources/app/native/bin/keystate"
+          ls -la dist/*.dmg dist/*.zip
+
+      # Installs the .dmg as a person would (quarantined, as a download is), lets Gatekeeper say
+      # what it thinks of the unsigned app, then opens it and takes screenshots.
+      - name: Install and open
+        run: |
+          DMG=$(ls dist/FocusShell-*-arm64.dmg)
+          hdiutil attach "$DMG" -nobrowse -mountpoint /Volumes/FocusShell
+          cp -R /Volumes/FocusShell/FocusShell.app /Applications/
+          hdiutil detach /Volumes/FocusShell
+          xattr -w com.apple.quarantine "0083;$(printf %x $(date +%s));Safari;" /Applications/FocusShell.app
+          spctl --assess --type execute -vv /Applications/FocusShell.app || echo "Gatekeeper refuses it, as expected for an unsigned app: users press Open Anyway"
+          xattr -dr com.apple.quarantine /Applications/FocusShell.app
+          mkdir -p ../state/open
+          open /Applications/FocusShell.app
+          for t in 10 25 45; do sleep $((t - ${last:-0})); last=$t; screencapture -x ../state/open/open-${t}s.png; done
+          pgrep -fl "FocusShell.app/Contents/MacOS/FocusShell" || { echo "FocusShell is not running 45 seconds after opening"; exit 1; }
+          echo "FocusShell is running"
+          osascript -e 'quit app "FocusShell"' || pkill -f FocusShell.app || true
+
+      - name: Hash
+        if: always()
+        run: |
+          cd dist && for f in *.dmg *.zip; do [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256" && cat "$f.sha256"; done; true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FocusShell-mac-arm64
+          path: |
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/*.sha256
+            app/dist/latest-mac.yml
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-and-logs
+          path: |
+            state/smoke/*.png
+            state/smoke/log.txt
+            state/open/*.png
+          if-no-files-found: warn

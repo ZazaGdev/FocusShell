@@ -1,0 +1,9 @@
+[
+ ["bar-left", 25, 20], ["stool", 60, 22], ["stool-2", 77, 22], ["bar-mid", 128, 20], ["stool-3", 178, 22], ["bar-right", 213, 20],
+ ["barrel-tap", 20, 55], ["chair-left", 43, 52], ["table-round", 60, 55], ["chair-right", 88, 52], ["sacks", 108, 56],
+ ["shelf-bottles", 133, 52], ["fireplace", 170, 55], ["candle-small", 193, 47], ["logs", 192, 64, [187, 56, 203, 71]], ["window-night", 217, 55],
+ ["bench", 27, 82], ["candle", 55, 84], ["candelabra", 70, 82], ["torch", 90, 82], ["lantern", 109, 82], ["notice-board", 139, 82],
+ ["shield-wolf", 171, 84], ["shield-lion", 191, 84], ["painting", 217, 84],
+ ["door", 20, 110], ["barrel", 47, 110], ["barrel-2", 68, 110], ["keg-crate", 87, 110], ["plant", 108, 108], ["rug", 138, 112],
+ ["mug", 165, 104], ["tankard", 168, 118], ["jug", 178, 108], ["bread-cheese", 195, 116], ["cat-sleeping", 218, 114]
+]

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tavern Room Demo</title>
+<style>
+  :root { --bg: #14100f; --panel: #221915; --line: #4a3427; --text: #f3e6cc; --muted: #b59c80; --accent: #f0a640; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 4px 0 4px; } h2 { font-size: 15px; margin: 24px 0 6px; color: var(--accent); }
+  p { color: var(--muted); margin: 4px 0 10px; max-width: 900px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-width: 100%; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  figcaption b { color: var(--text); font-size: 13px; }
+  canvas { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
+  figure canvas { width: 100%; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 20px; margin: 10px 0; max-width: 1000px; }
+  .sliders label { display: flex; flex-direction: column; gap: 2px; }
+  .sliders b { color: var(--accent); }
+  .sliders input { width: 100%; accent-color: var(--accent); }
+  .sliders small { color: var(--muted); font-size: 11px; }
+  #room { width: var(--roomw, 2592px); max-width: 100%; }
+  #room canvas { display: block; width: 100% !important; height: auto !important; image-rendering: pixelated; }
+  /* The chalkboard leaderboard (#272): a framed blackboard with chalk writing. */
+  .chalkshade { position: fixed; inset: 0; background: rgba(10, 6, 4, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .chalk { background: #1e2a24; color: #ece6d6; border: 10px solid #6b4a2b; outline: 2px solid #2b1b10; border-radius: 4px; padding: 14px 18px; width: min(560px, 100%); max-height: 90vh; overflow: auto; box-shadow: 0 10px 40px #000a; font-family: "Comic Sans MS", "Segoe Print", ui-monospace, monospace; }
+  .chalk h2 { margin: 0 0 4px; color: #f6efdc; font-size: 20px; letter-spacing: 1px; }
+  .chalk p { color: #b9c2b4; font-size: 12px; margin: 0 0 10px; }
+  .chalk ol { list-style: none; margin: 0; padding: 0; }
+  .chalk li { display: grid; grid-template-columns: 2.2em 1fr auto auto; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px dashed #ffffff22; }
+  .chalk .rank { color: #f0d9a0; } .chalk .fresh { color: #fff; font-size: 16px; text-align: right; }
+  .chalk small { color: #9fb0a4; font-size: 11px; min-width: 6.5em; text-align: right; }
+  .chalk li.helpers .who { color: #c9d6c0; font-style: italic; }
+  .chalk .chalktabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+  .chalk .chalktab { background: none; border: 1px solid #ffffff33; border-radius: 3px; color: #b9c2b4; font: inherit; font-size: 12px; padding: 2px 9px; cursor: pointer; }
+  .chalk .chalktab:hover { color: #f6efdc; } .chalk .chalktab.on { color: #f6efdc; border-color: #f0d9a0; background: #ffffff12; }
+  .chalk .hint { margin: 10px 0 0; text-align: right; }
+  .chalk li.msg { display: block; }
+  .chalk .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; } .chalk dt { color: #f0d9a0; } .chalk dd { margin: 0; }
+  .chalk.notice { background: #c9a877; color: #2a1a10; border-color: #6b4a2b; }
+  .chalk.notice h2, .chalk.notice .who { color: #2a1a10; } .chalk.notice p, .chalk.notice small { color: #4a3427; }
+  .chalk li.note { display: flex; flex-direction: column; gap: 4px; padding: 8px; margin: 6px 0; background: #f6ecd2; border: 0; box-shadow: 1px 2px 0 #0004; }
+  .chalk li.note .opts { display: flex; gap: 6px; } .chalk li.note button { background: #2d211b; color: #f3e6cc; padding: 3px 10px; }
+  #demo { display: flex; flex-direction: column; }
+  .controls summary { cursor: pointer; color: var(--accent); margin: 6px 0; }
+  .intro summary { display: none; }
+  /* Phone (#273): the room first and large, scrolling sideways in portrait and filling the
+     height in landscape; the description and the controls folded away below it. */
+  @media (max-width: 900px) and (orientation: portrait) {
+    main { padding: 8px 0; } h1 { font-size: 14px; padding: 0 8px; }
+    .intro summary { display: block; padding: 0 8px; color: var(--accent); }
+    #demo figure { order: -1; overflow-x: auto; border-radius: 0; padding: 0; border-width: 1px 0; }
+    #room { width: 200vw; max-width: none; }
+    figcaption { display: none; }
+    .controls { padding: 0 8px; }
+  }
+  @media (max-height: 500px) and (orientation: landscape) {
+    main { padding: 0; } h1 { font-size: 13px; margin: 2px 8px; }
+    .intro summary { display: block; padding: 0 8px; color: var(--accent); }
+    #demo figure { order: -1; overflow-x: auto; border-radius: 0; padding: 0; border: 0; }
+    #room { height: calc(100vh - 48px); width: calc((100vh - 48px) * var(--roomratio, 1.93)); max-width: none; }
+    figcaption { display: none; }
+    .controls { padding: 0 8px; }
+  }
+  html.phone main { padding: 8px 0; } html.phone #demo figure { order: -1; overflow-x: auto; padding: 0; }
+  html.phone #room { width: 200vw; max-width: none; }
+  html.phone .intro summary { display: block; padding: 0 8px; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pixel Tavern: the room furnished (#248, #249, #251, #261)</h1>
+  <details class="intro" open><summary>About this room</summary>
+  <p>The furniture and props are the owner's Gemini pieces, one picture each, cleaned into pixel art and brought to the people's scale; floor and walls are drawn in code. The room is 27 by 14 tiles (1296 by 672 pixels). A rustic corner bar with beer taps closes the left side and is open on the right; the tables are mixed (a long table for four, square and round tables for two, small round tables for one), 20 seats in all, with aisles between. The barkeep is the owner's likeness in barkeep clothes (#259); the 18 robots sit a while, walk the aisles to stand at the bar, and come back. The full-size characters are drawn 1.25 times their art (#260); the helpers are about three quarters of a robot (#263). Seven of them (#262: barkeep, CTO, PM, FocusShell, AI Fun, Compass, Budget) turn to their side when walking left or right and show their back walking away; the CTO has a back view only. The fire, candles and torches are animated from their frames; the arched windows and the room light follow the local clock: day from 7:00, dusk from 18:00, night from 21:00 (dusk again from 5:00).</p>
+  </details>
+  <section id="demo"></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
+<script type="module" src="room.js"></script>
+</body>
+</html>

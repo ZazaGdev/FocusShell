@@ -1,0 +1,8 @@
+/* The start-up card for missing Claude Code or Node.js (#390). */
+.reqcard{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:900;width:min(460px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--warn);border-radius:var(--r);padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.45);color:var(--text);font-size:12.5px}
+.reqcard .rq-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.reqcard .rq-x{height:22px;padding:0 4px}
+.reqcard .rq-sub{margin:4px 0 10px;color:var(--text2)}
+.reqcard .rq-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.reqcard .rq-txt{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.reqcard .rq-txt span{color:var(--text2)}

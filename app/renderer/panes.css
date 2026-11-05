@@ -1,0 +1,18 @@
+/* Pane edges in the coding view (#333). Kept apart from styles.css, which is past 800 lines. */
+:root{
+  --well:#060607;
+  /* Muted on purpose (#338): no red, orange, yellow or bright green, which the app keeps for alerts. */
+  --p0:#7d9cc0; --p1:#8a96a8; --p2:#8fae94; --p3:#b08aa8; --p4:#74a9a6; --p5:#9d95c4; --p6:#a8998a; --p7:#86b3c4;
+}
+/* Gaps between panes, and each project's own colour washed over its header, so it is plain
+   where one project's terminal ends and the next begins. The pane in focus is outlined in its
+   colour (#406: the tinted header replaced the coloured left edge, the CTO included). */
+#stage{padding:6px;background:var(--well)}
+#stage .gutter{--gl:transparent}
+#stage .split>.gutter{width:6px} #stage .split.v>.gutter{height:6px}
+#stage .gutter:hover,#stage .gutter.drag{--gl:var(--accent)}
+#stage .pane{border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+#stage .pane.focus{border-color:var(--pc,var(--line2));box-shadow:0 0 0 1px color-mix(in srgb,var(--pc,var(--line2)) 40%,transparent)}
+#stage .pane .ph{background:color-mix(in srgb,var(--pc,var(--line2)) 16%,var(--chrome));border-bottom:1px solid color-mix(in srgb,var(--pc,var(--line2)) 35%,var(--line))}
+#stage .pane.focus .ph{background:color-mix(in srgb,var(--pc,var(--line2)) 22%,var(--chrome))}
+#stage .pane .ph .pn{color:color-mix(in srgb,var(--pc,var(--text2)) 70%,#fff)}

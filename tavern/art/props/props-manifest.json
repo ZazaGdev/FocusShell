@@ -1,0 +1,524 @@
+[
+ {
+  "name": "counter-left",
+  "w": 48,
+  "h": 93,
+  "from": "prop-bar-counter"
+ },
+ {
+  "name": "counter-mid",
+  "w": 72,
+  "h": 61,
+  "from": "prop-bar-counter"
+ },
+ {
+  "name": "counter-right",
+  "w": 48,
+  "h": 93,
+  "from": "prop-bar-counter"
+ },
+ {
+  "name": "bar-stool",
+  "w": 38,
+  "h": 56,
+  "from": "prop-bar-stool"
+ },
+ {
+  "name": "bar-table",
+  "w": 78,
+  "h": 68,
+  "from": "prop-bar-table"
+ },
+ {
+  "name": "chair-right",
+  "w": 50,
+  "h": 78,
+  "from": "prop-bar-chair"
+ },
+ {
+  "name": "chair-left",
+  "w": 49,
+  "h": 71,
+  "from": "prop-bar-chair"
+ },
+ {
+  "name": "bar-bench",
+  "w": 90,
+  "h": 54,
+  "from": "prop-bar-bench"
+ },
+ {
+  "name": "keg",
+  "w": 61,
+  "h": 70,
+  "from": "prop-bar-keg"
+ },
+ {
+  "name": "barrel",
+  "w": 43,
+  "h": 65,
+  "from": "prop-barrel-crate"
+ },
+ {
+  "name": "barrel-crate",
+  "w": 90,
+  "h": 68,
+  "from": "prop-barrel-crate"
+ },
+ {
+  "name": "sacks",
+  "w": 56,
+  "h": 52,
+  "from": "prop-sacks"
+ },
+ {
+  "name": "bottle-shelf",
+  "w": 119,
+  "h": 64,
+  "from": "prop-bottle-shelf"
+ },
+ {
+  "name": "fireplace",
+  "w": 131,
+  "h": 120,
+  "from": "prop-fireplace"
+ },
+ {
+  "name": "fire-1",
+  "w": 35,
+  "h": 34,
+  "from": "prop-fire-animated"
+ },
+ {
+  "name": "fire-2",
+  "w": 36,
+  "h": 35,
+  "from": "prop-fire-animated"
+ },
+ {
+  "name": "fire-3",
+  "w": 35,
+  "h": 35,
+  "from": "prop-fire-animated"
+ },
+ {
+  "name": "fire-4",
+  "w": 35,
+  "h": 36,
+  "from": "prop-fire-animated"
+ },
+ {
+  "name": "candle-1",
+  "w": 15,
+  "h": 23,
+  "from": "prop-candle"
+ },
+ {
+  "name": "candle-2",
+  "w": 15,
+  "h": 26,
+  "from": "prop-candle"
+ },
+ {
+  "name": "candle-3",
+  "w": 15,
+  "h": 26,
+  "from": "prop-candle"
+ },
+ {
+  "name": "candelabra",
+  "w": 26,
+  "h": 38,
+  "from": "prop-candelabra"
+ },
+ {
+  "name": "torch-1",
+  "w": 25,
+  "h": 35,
+  "from": "prop-wall-torch"
+ },
+ {
+  "name": "torch-2",
+  "w": 25,
+  "h": 38,
+  "from": "prop-wall-torch"
+ },
+ {
+  "name": "torch-3",
+  "w": 25,
+  "h": 35,
+  "from": "prop-wall-torch"
+ },
+ {
+  "name": "lantern",
+  "w": 20,
+  "h": 42,
+  "from": "prop-hanging-lantern"
+ },
+ {
+  "name": "window-night",
+  "w": 60,
+  "h": 64,
+  "from": "prop-door"
+ },
+ {
+  "name": "window-day",
+  "w": 60,
+  "h": 64,
+  "from": "prop-door"
+ },
+ {
+  "name": "door-closed",
+  "w": 76,
+  "h": 112,
+  "from": "prop-door-2"
+ },
+ {
+  "name": "door-open",
+  "w": 73,
+  "h": 112,
+  "from": "prop-door-2"
+ },
+ {
+  "name": "notice-board-lamp",
+  "w": 77,
+  "h": 62,
+  "from": "prop-notice-board"
+ },
+ {
+  "name": "r2-counter",
+  "w": 191,
+  "h": 100,
+  "from": "prop2-counter"
+ },
+ {
+  "name": "r2-corner",
+  "w": 54,
+  "h": 71,
+  "from": "prop2-corner-counter"
+ },
+ {
+  "name": "r2-corner-mid",
+  "w": 51,
+  "h": 41,
+  "from": "prop2-corner-counter"
+ },
+ {
+  "name": "r2-corner-end",
+  "w": 41,
+  "h": 70,
+  "from": "prop2-corner-counter"
+ },
+ {
+  "name": "r2-end-1",
+  "w": 74,
+  "h": 80,
+  "from": "prop2-bar-counter-ends"
+ },
+ {
+  "name": "r2-end-2",
+  "w": 74,
+  "h": 80,
+  "from": "prop2-bar-counter-ends"
+ },
+ {
+  "name": "r2-taps",
+  "w": 130,
+  "h": 110,
+  "from": "prop2-bar-taps"
+ },
+ {
+  "name": "r2-barrel-rack",
+  "w": 116,
+  "h": 100,
+  "from": "prop2-bar-barrel-rack"
+ },
+ {
+  "name": "r2-back-shelf",
+  "w": 163,
+  "h": 84,
+  "from": "prop2-bar-back-shelf"
+ },
+ {
+  "name": "r2-table-long",
+  "w": 184,
+  "h": 90,
+  "from": "prop2-table"
+ },
+ {
+  "name": "r2-bench-long",
+  "w": 184,
+  "h": 66,
+  "from": "prop2-bench-long"
+ },
+ {
+  "name": "r2-table-square",
+  "w": 71,
+  "h": 64,
+  "from": "prop2-table-small"
+ },
+ {
+  "name": "r2-table-round",
+  "w": 92,
+  "h": 90,
+  "from": "prop2-round"
+ },
+ {
+  "name": "r2-table-small",
+  "w": 73,
+  "h": 80,
+  "from": "prop2-round-1"
+ },
+ {
+  "name": "r2-table-barrel",
+  "w": 75,
+  "h": 96,
+  "from": "prop2-table-barrel"
+ },
+ {
+  "name": "r2-stool-round",
+  "w": 31,
+  "h": 42,
+  "from": "prop2-stools"
+ },
+ {
+  "name": "r2-stool-square",
+  "w": 32,
+  "h": 46,
+  "from": "prop2-stools"
+ },
+ {
+  "name": "r2-stool-tall",
+  "w": 31,
+  "h": 58,
+  "from": "prop2-stools"
+ },
+ {
+  "name": "r2-chair-front",
+  "w": 63,
+  "h": 92,
+  "from": "prop2-chairs"
+ },
+ {
+  "name": "r2-chair-back",
+  "w": 68,
+  "h": 92,
+  "from": "prop2-chairs"
+ },
+ {
+  "name": "r2-fireplace",
+  "w": 190,
+  "h": 161,
+  "from": "prop2-fireplace"
+ },
+ {
+  "name": "r2-fire-1",
+  "w": 55,
+  "h": 63,
+  "from": "prop2-fire"
+ },
+ {
+  "name": "r2-fire-2",
+  "w": 55,
+  "h": 63,
+  "from": "prop2-fire"
+ },
+ {
+  "name": "r2-fire-3",
+  "w": 55,
+  "h": 63,
+  "from": "prop2-fire"
+ },
+ {
+  "name": "r2-fire-4",
+  "w": 55,
+  "h": 63,
+  "from": "prop2-fire"
+ },
+ {
+  "name": "r2-window-night",
+  "w": 61,
+  "h": 78,
+  "from": "prop2-window"
+ },
+ {
+  "name": "r2-window-day",
+  "w": 62,
+  "h": 78,
+  "from": "prop2-window"
+ },
+ {
+  "name": "r2-corner-bar",
+  "w": 379,
+  "h": 157,
+  "from": "prop2-bar-counter-corner-front"
+ },
+ {
+  "name": "r2-table-square-front",
+  "w": 87,
+  "h": 90,
+  "from": "prop2-table-square-front"
+ },
+ {
+  "name": "r2-chair-small-front",
+  "w": 40,
+  "h": 69,
+  "from": "prop2-chairs-small"
+ },
+ {
+  "name": "r2-chair-small-side",
+  "w": 41,
+  "h": 70,
+  "from": "prop2-chairs-small"
+ },
+ {
+  "name": "r2-chair-small-back",
+  "w": 39,
+  "h": 67,
+  "from": "prop2-chairs-small"
+ },
+ {
+  "name": "r3-antlers",
+  "w": 45,
+  "h": 42,
+  "from": "prop3-antlers"
+ },
+ {
+  "name": "r3-broom-bucket",
+  "w": 49,
+  "h": 80,
+  "from": "prop3-broom-bucket"
+ },
+ {
+  "name": "r3-cat-1",
+  "w": 34,
+  "h": 26,
+  "from": "prop3-cat"
+ },
+ {
+  "name": "r3-cat-2",
+  "w": 34,
+  "h": 26,
+  "from": "prop3-cat"
+ },
+ {
+  "name": "r3-painting",
+  "w": 84,
+  "h": 52,
+  "from": "prop3-painting"
+ },
+ {
+  "name": "r3-plant",
+  "w": 38,
+  "h": 62,
+  "from": "prop3-plant"
+ },
+ {
+  "name": "r3-rug",
+  "w": 209,
+  "h": 63,
+  "from": "prop3-rug"
+ },
+ {
+  "name": "r3-shield-round",
+  "w": 47,
+  "h": 47,
+  "from": "prop3-shields"
+ },
+ {
+  "name": "r3-shield-crest",
+  "w": 35,
+  "h": 47,
+  "from": "prop3-shields"
+ },
+ {
+  "name": "r3-mug",
+  "w": 9,
+  "h": 8,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-mug-2",
+  "w": 8,
+  "h": 8,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-tankard",
+  "w": 10,
+  "h": 9,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-jug",
+  "w": 10,
+  "h": 13,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-bread",
+  "w": 18,
+  "h": 8,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-candle",
+  "w": 9,
+  "h": 9,
+  "from": "prop3-table-clutter"
+ },
+ {
+  "name": "r3-floor-tile",
+  "w": 106,
+  "h": 109,
+  "from": "prop3-floor-tile"
+ },
+ {
+  "name": "r3-wall-tile",
+  "w": 190,
+  "h": 107,
+  "from": "prop3-wall-tile"
+ },
+ {
+  "name": "r3-back-tap-ledge",
+  "w": 119,
+  "h": 46,
+  "from": "prop3-back-tap-ledge"
+ },
+ {
+  "name": "r3-back-mug-rack",
+  "w": 120,
+  "h": 30,
+  "from": "prop3-back-mug-rack"
+ },
+ {
+  "name": "r3-back-chalkboard",
+  "w": 39,
+  "h": 52,
+  "from": "prop3-back-chalkboard"
+ },
+ {
+  "name": "r4-beer-wood",
+  "w": 14,
+  "h": 16,
+  "from": "prop4-beers"
+ },
+ {
+  "name": "r4-beer-glass",
+  "w": 13,
+  "h": 16,
+  "from": "prop4-beers"
+ },
+ {
+  "name": "r4-beer-stein",
+  "w": 13,
+  "h": 20,
+  "from": "prop4-beers"
+ },
+ {
+  "name": "r4-beer-clay",
+  "w": 13,
+  "h": 15,
+  "from": "prop4-beers"
+ }
+]

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemini Barkeep Demo</title>
+<style>
+  :root { --bg: #14100f; --panel: #221915; --line: #4a3427; --text: #f3e6cc; --muted: #b59c80; --accent: #f0a640; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 4px 0 4px; } h2 { font-size: 15px; margin: 24px 0 6px; color: var(--accent); }
+  p { color: var(--muted); margin: 4px 0 10px; max-width: 900px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-width: 100%; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  figcaption b { color: var(--text); font-size: 13px; }
+  canvas { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 20px; margin: 10px 0; max-width: 1000px; }
+  .sliders label { display: flex; flex-direction: column; gap: 2px; }
+  .sliders b { color: var(--accent); }
+  .sliders input { width: 100%; accent-color: var(--accent); }
+  .sliders small { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pixel Tavern: the Gemini barkeep, animated (#249)</h1>
+  <p>The barkeep image was cleaned back into true pixel art: snapped to its real 51x105 pixel grid, reduced to one 32-colour palette, background removed. It is cut into parts along its own outlines and moved by whole pixels only, with the #248 motion settings.</p>
+  <section id="demo"></section>
+</main>
+<script type="module" src="gemini.js"></script>
+</body>
+</html>

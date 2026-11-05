@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Tavern</title>
+<style>
+  :root { --bg: #14100f; --panel: #241a16; --line: #4a3427; --text: #f3e6cc; --muted: #b59c80; --accent: #f0a640; --accent-ink: #2b1a0c; --bad: #d9573b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; max-width: 1100px; margin: 0 auto; }
+  header h1 { font-size: 15px; margin: 0 auto 0 0; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #tavernBtn { position: relative; padding-right: 14px; }
+  #badge { position: absolute; top: -7px; right: -7px; min-width: 20px; height: 20px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 12px; line-height: 20px; text-align: center; padding: 0 5px; }
+  #helpBtn { width: 34px; padding: 7px 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 16px 16px; position: relative; }
+  #game { width: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1b1412; touch-action: manipulation; }
+  #game canvas { display: block; image-rendering: pixelated; }
+  #help { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; color: var(--muted); }
+  #help b { color: var(--text); }
+  #box { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); width: min(560px, calc(100% - 32px)); background: #2d211b; border: 2px solid #6b4527; border-radius: 10px; box-shadow: 0 0 0 3px #1b1412, 0 18px 40px rgba(0,0,0,.6); padding: 14px; display: grid; grid-template-columns: 64px 1fr; gap: 6px 12px; }
+  #face { width: 64px; height: 64px; background-image: url(assets/characters.png); image-rendering: pixelated; background-repeat: no-repeat; background-color: #3b2a20; border-radius: 6px; border: 1px solid var(--line); }
+  #who { font-weight: 700; } #proj { color: var(--muted); font-size: 12px; }
+  #question { grid-column: 1 / -1; font-size: 15px; margin: 4px 0 2px; }
+  #options { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+  .opt.suggest { border-color: var(--accent); }
+  .opt.suggest::after { content: " ★"; color: var(--accent); }
+  .say { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
+  #words { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #1f1713; border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+  #send { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  #closeBox { position: absolute; top: 6px; right: 6px; border: 0; background: none; color: var(--muted); padding: 4px 8px; }
+  #toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 14px; max-width: calc(100% - 32px); }
+  [hidden] { display: none !important; }
+  @media (max-width: 600px) {
+    header { padding: 8px 16px; gap: 6px; } header h1 { font-size: 13px; }
+    button { padding: 6px 9px; font-size: 13px; }
+    #box { position: relative; left: auto; bottom: auto; transform: none; width: 100%; margin-top: 10px; }
+    header h1 { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pixel Tavern · mock-up</h1>
+  <button id="evening" aria-pressed="false">Skip to evening</button>
+  <button id="tavernBtn" title="Nobody waiting">Tavern<span id="badge" hidden>0</span></button>
+  <button id="helpBtn" aria-label="How to play">?</button>
+</header>
+<main>
+  <div id="help" hidden>
+    You are the <b>barkeeper</b>. Walk with <b>arrows</b> or <b>WASD</b>; press <b>E</b> or <b>Space</b> beside a guest to talk.
+    Or <b>click a guest</b> and the barkeeper walks over. A <b>?</b> over a guest at the bar is a question waiting for you.
+    Click the floor to walk there. <b>Tavern</b> walks you to the next guest waiting. Guests here are fake agents.
+  </div>
+  <div id="game"></div>
+  <div id="box" hidden role="dialog" aria-label="A guest's question">
+    <div id="face"></div>
+    <div><div id="who"></div><div id="proj"></div></div>
+    <div id="question"></div>
+    <div id="options"></div>
+    <div class="say"><input id="words" placeholder="Or say something else" autocomplete="off"><button id="send">Send</button></div>
+    <button id="closeBox" aria-label="Close">✕</button>
+  </div>
+</main>
+<div id="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

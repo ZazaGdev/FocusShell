@@ -1,0 +1,14 @@
+{
+  "name": "focusshell-tavern",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The pixel tavern mock-up (#238): fake agents as guests, before it goes into FocusShell.",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node --test src/core/core.test.js tokens.test.mjs daylight.test.mjs"
+  },
+  "dependencies": {
+    "phaser": "4.2.1"
+  }
+}

@@ -1,0 +1,7 @@
+[
+ ["bar-large-left", 32, 35], ["bar-large-mid", 125, 30], ["bar-large-right", 208, 35],
+ ["bench", 27, 80], ["candle", 56, 85], ["candelabra", 70, 82], ["torch", 89, 82], ["lantern", 109, 80], ["notice-board", 139, 84],
+ ["shield-wolf", 171, 84], ["shield-lion", 191, 84], ["painting", 217, 86],
+ ["door", 20, 110], ["barrel", 47, 110], ["barrel-2", 68, 110], ["keg-crate", 87, 110], ["plant", 108, 108], ["rug", 138, 112],
+ ["mug", 165, 105], ["tankard", 168, 118], ["jug", 178, 108], ["bread-cheese", 195, 116], ["cat-sleeping", 218, 114]
+]

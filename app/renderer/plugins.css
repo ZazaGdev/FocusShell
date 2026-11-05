@@ -1,0 +1,7 @@
+/* A plugin's Plugins screen controls (#394): the switch with its label, then the button and its
+   shortcut as keys. */
+.plugsctl{flex-wrap:wrap}
+.plugsctl .plugon{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text)}
+.plugsctl .plugsep{width:1px;height:20px;background:var(--line2);margin:0 2px}
+.plugsctl .plugkeys{display:inline-flex;align-items:center;gap:3px;color:var(--muted)}
+.plugsctl kbd{font:11px var(--mono);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:1px 5px;color:var(--text2);background:var(--surface2)}

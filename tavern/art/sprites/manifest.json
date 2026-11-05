@@ -1,0 +1,522 @@
+[
+ {
+  "name": "barkeep",
+  "file": "barkeep.png",
+  "w": 51,
+  "h": 105,
+  "source": "barkeep-standing.jpg",
+  "box": [
+   94,
+   12,
+   145,
+   117
+  ]
+ },
+ {
+  "name": "bar-left",
+  "file": "bar-left.png",
+  "w": 38,
+  "h": 34,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   7,
+   4,
+   45,
+   38
+  ]
+ },
+ {
+  "name": "stool",
+  "file": "stool.png",
+  "w": 13,
+  "h": 20,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   53,
+   14,
+   66,
+   34
+  ]
+ },
+ {
+  "name": "stool-2",
+  "file": "stool-2.png",
+  "w": 13,
+  "h": 22,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   71,
+   12,
+   84,
+   34
+  ]
+ },
+ {
+  "name": "bar-mid",
+  "file": "bar-mid.png",
+  "w": 72,
+  "h": 29,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   92,
+   6,
+   164,
+   35
+  ]
+ },
+ {
+  "name": "stool-3",
+  "file": "stool-3.png",
+  "w": 13,
+  "h": 23,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   172,
+   11,
+   185,
+   34
+  ]
+ },
+ {
+  "name": "bar-right",
+  "file": "bar-right.png",
+  "w": 38,
+  "h": 34,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   193,
+   4,
+   231,
+   38
+  ]
+ },
+ {
+  "name": "barrel-tap",
+  "file": "barrel-tap.png",
+  "w": 25,
+  "h": 29,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   8,
+   42,
+   33,
+   71
+  ]
+ },
+ {
+  "name": "chair-left",
+  "file": "chair-left.png",
+  "w": 16,
+  "h": 27,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   36,
+   40,
+   52,
+   67
+  ]
+ },
+ {
+  "name": "table-round",
+  "file": "table-round.png",
+  "w": 26,
+  "h": 26,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   52,
+   43,
+   78,
+   69
+  ]
+ },
+ {
+  "name": "chair-right",
+  "file": "chair-right.png",
+  "w": 16,
+  "h": 26,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   80,
+   40,
+   96,
+   66
+  ]
+ },
+ {
+  "name": "sacks",
+  "file": "sacks.png",
+  "w": 16,
+  "h": 18,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   100,
+   48,
+   116,
+   66
+  ]
+ },
+ {
+  "name": "shelf-bottles",
+  "file": "shelf-bottles.png",
+  "w": 30,
+  "h": 26,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   118,
+   41,
+   148,
+   67
+  ]
+ },
+ {
+  "name": "fireplace",
+  "file": "fireplace.png",
+  "w": 35,
+  "h": 28,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   152,
+   42,
+   187,
+   70
+  ]
+ },
+ {
+  "name": "candle-small",
+  "file": "candle-small.png",
+  "w": 7,
+  "h": 12,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   191,
+   43,
+   198,
+   55
+  ]
+ },
+ {
+  "name": "logs",
+  "file": "logs.png",
+  "w": 13,
+  "h": 12,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   187,
+   58,
+   200,
+   70
+  ]
+ },
+ {
+  "name": "window-night",
+  "file": "window-night.png",
+  "w": 27,
+  "h": 28,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   204,
+   42,
+   231,
+   70
+  ]
+ },
+ {
+  "name": "bench",
+  "file": "bench.png",
+  "w": 36,
+  "h": 14,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   9,
+   76,
+   45,
+   90
+  ]
+ },
+ {
+  "name": "candle",
+  "file": "candle.png",
+  "w": 10,
+  "h": 14,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   51,
+   78,
+   61,
+   92
+  ]
+ },
+ {
+  "name": "candelabra",
+  "file": "candelabra.png",
+  "w": 15,
+  "h": 19,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   63,
+   74,
+   78,
+   93
+  ]
+ },
+ {
+  "name": "torch",
+  "file": "torch.png",
+  "w": 12,
+  "h": 20,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   84,
+   74,
+   96,
+   94
+  ]
+ },
+ {
+  "name": "lantern",
+  "file": "lantern.png",
+  "w": 9,
+  "h": 25,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   105,
+   69,
+   114,
+   94
+  ]
+ },
+ {
+  "name": "notice-board",
+  "file": "notice-board.png",
+  "w": 35,
+  "h": 24,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   122,
+   73,
+   157,
+   97
+  ]
+ },
+ {
+  "name": "shield-wolf",
+  "file": "shield-wolf.png",
+  "w": 19,
+  "h": 20,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   161,
+   76,
+   180,
+   96
+  ]
+ },
+ {
+  "name": "shield-lion",
+  "file": "shield-lion.png",
+  "w": 16,
+  "h": 22,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   183,
+   75,
+   199,
+   97
+  ]
+ },
+ {
+  "name": "painting",
+  "file": "painting.png",
+  "w": 28,
+  "h": 22,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   203,
+   76,
+   231,
+   98
+  ]
+ },
+ {
+  "name": "door",
+  "file": "door.png",
+  "w": 25,
+  "h": 27,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   8,
+   96,
+   33,
+   123
+  ]
+ },
+ {
+  "name": "barrel",
+  "file": "barrel.png",
+  "w": 18,
+  "h": 26,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   39,
+   97,
+   57,
+   123
+  ]
+ },
+ {
+  "name": "barrel-2",
+  "file": "barrel-2.png",
+  "w": 18,
+  "h": 26,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   59,
+   97,
+   77,
+   123
+  ]
+ },
+ {
+  "name": "keg-crate",
+  "file": "keg-crate.png",
+  "w": 13,
+  "h": 25,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   82,
+   98,
+   95,
+   123
+  ]
+ },
+ {
+  "name": "plant",
+  "file": "plant.png",
+  "w": 19,
+  "h": 27,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   99,
+   96,
+   118,
+   123
+  ]
+ },
+ {
+  "name": "rug",
+  "file": "rug.png",
+  "w": 37,
+  "h": 21,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   120,
+   102,
+   157,
+   123
+  ]
+ },
+ {
+  "name": "mug",
+  "file": "mug.png",
+  "w": 9,
+  "h": 9,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   161,
+   101,
+   170,
+   110
+  ]
+ },
+ {
+  "name": "tankard",
+  "file": "tankard.png",
+  "w": 10,
+  "h": 11,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   163,
+   112,
+   173,
+   123
+  ]
+ },
+ {
+  "name": "jug",
+  "file": "jug.png",
+  "w": 12,
+  "h": 14,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   173,
+   101,
+   185,
+   115
+  ]
+ },
+ {
+  "name": "bread-cheese",
+  "file": "bread-cheese.png",
+  "w": 20,
+  "h": 15,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   184,
+   108,
+   204,
+   123
+  ]
+ },
+ {
+  "name": "cat-sleeping",
+  "file": "cat-sleeping.png",
+  "w": 22,
+  "h": 16,
+  "source": "furniture-sheet.jpg",
+  "box": [
+   208,
+   107,
+   230,
+   123
+  ]
+ },
+ {
+  "name": "bar-large-left",
+  "file": "bar-large-left.png",
+  "w": 51,
+  "h": 55,
+  "source": "furniture-sheet-2.jpg",
+  "box": [
+   7,
+   7,
+   58,
+   62
+  ]
+ },
+ {
+  "name": "bar-large-mid",
+  "file": "bar-large-mid.png",
+  "w": 111,
+  "h": 46,
+  "source": "furniture-sheet-2.jpg",
+  "box": [
+   69,
+   9,
+   180,
+   55
+  ]
+ },
+ {
+  "name": "bar-large-right",
+  "file": "bar-large-right.png",
+  "w": 47,
+  "h": 55,
+  "source": "furniture-sheet-2.jpg",
+  "box": [
+   184,
+   7,
+   231,
+   62
+  ]
+ }
+]

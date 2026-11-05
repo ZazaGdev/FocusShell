@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Bash(ls *)",
+      "Bash(ls)",
+      "Bash(pwd)",
+      "Bash(date)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(mkdir *)",
+      "Bash(touch *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(echo *)",
+      "Bash(grep *)",
+      "Bash(git init*)",
+      "Bash(git status*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git remote*)",
+      "Bash(git rev-parse *)",
+      "Bash(node *)",
+      "Bash(npm test*)",
+      "Bash(npm run *)",
+      "Bash(npm start*)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(cd *)"
+    ],
+    "deny": [
+      "Bash(git push*)"
+    ]
+  }
+}
