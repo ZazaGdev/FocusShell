@@ -50,6 +50,17 @@ jobs:
           brew install --cask visual-studio-code
           test -x "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
+      # The smoke run switches between several projects, and lists the folders beside the
+      # checkout as projects; on the runner only FocusShell is there, so three small ones join it.
+      - name: Projects beside the checkout
+        run: |
+          for p in Habitly NoteNest RecipeScale; do
+            d="$GITHUB_WORKSPACE/../$p"; mkdir -p "$d"
+            printf '# %s\n\nA small demo project for the smoke run.\n' "$p" > "$d/README.md"
+            git -C "$d" init -q && git -C "$d" add -A && git -C "$d" -c user.name=smoke -c user.email=smoke@example.com commit -q -m "first"
+          done
+          ls "$GITHUB_WORKSPACE/.."
+
       # The smoke run uses fake sessions (no Claude); its FAILED lines are read from the log and
       # the screenshots, so they do not stop the build. A run that wrote nothing, or ran out of
       # time, does: the job is marked failed at the end, after the files are uploaded.

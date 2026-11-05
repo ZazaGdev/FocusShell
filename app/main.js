@@ -18,6 +18,7 @@ import { nextShared } from './lib/counter.js';
 import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraOf, projectOf, extraLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, CLAUDE, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs, posixSpawn } from './lib/sessions.js';
 import { isWin, loginPath } from './lib/shell.js';
 import { isAbsPath, onDisk } from './lib/localpath.js';
+import { imagePasteKey } from './lib/platform.js';
 import { ACCESSIBILITY } from './lib/keystate.js';
 import { tellOnce } from './permission-note.js';
 import { normalizeGroups, findGroup, managerFor, groupOfMgr, isMgr } from './lib/groups.js';
@@ -525,15 +526,15 @@ ipcMain.on('session:write', (_e, { id, data }) => { const s = sessions.get(id); 
 // owner works, and nothing they copy may reach the owner's clipboard or Win+V history.
 const standIn = SMOKE ? memoryClipboard() : null;
 // A Sketch (#94) lands in the prompt the way a pasted screenshot does: the PNG goes on the
-// clipboard and Claude Code's image-paste key (Alt+V on Windows) attaches it as [Image #n].
+// clipboard and Claude Code's image-paste key (Alt+V on Windows, Ctrl+V on a Mac) attaches it as [Image #n].
 // Nothing is submitted. What the owner had copied goes back once the pane shows the image (#1902).
 ipcMain.handle('sketch:paste', async (_e, { id, png }) => {
   const s = sessions.get(id);
   if (!s || !s.alive) return false;
-  if (standIn) { await standIn.writePng(png); s.pty.write('\x1bv'); return true; }
+  if (standIn) { await standIn.writePng(png); s.pty.write(imagePasteKey()); return true; }
   const kept = await keepClipboard(() => clipboard.read()), from = s.total;
   await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
-  s.pty.write('\x1bv');
+  s.pty.write(imagePasteKey());
   whenTaken(() => plainText(s.buffer.slice(-Math.min(s.total - from, 4000))).includes('[Image'))
     .then(() => putBack(clipboard, kept, r => new ClipboardItem(r))).catch(() => {});
   return true;

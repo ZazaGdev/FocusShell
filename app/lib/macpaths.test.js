@@ -65,6 +65,12 @@ test('a Mac\'s process list finds a Code pane server whose app is gone', () => {
   assert.deepEqual(orphanServers(procs, '/Users/a/deck/state/vscode-server'), [501], 'handed to launchd: gone; a live parent keeps its server');
 });
 
+test('an image goes into a pane with Claude Code\'s own key: Alt+V on Windows, Ctrl+V on a Mac', async () => {
+  const { imagePasteKey } = await import('./platform.js');
+  assert.equal(imagePasteKey(true), '\x16');
+  assert.equal(imagePasteKey(false), '\x1bv');
+});
+
 test('the app\'s shortcuts use Cmd on a Mac and Ctrl elsewhere', () => {
   assert.ok(modKey({ metaKey: true, ctrlKey: false }, true) && !modKey({ ctrlKey: true, metaKey: false }, true));
   assert.ok(modKey({ ctrlKey: true, metaKey: false }, false) && !modKey({ metaKey: true, ctrlKey: false }, false));

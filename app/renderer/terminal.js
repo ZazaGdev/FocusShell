@@ -4,7 +4,7 @@ import { Terminal } from '../node_modules/@xterm/xterm/lib/xterm.mjs';
 import { FitAddon } from '../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
 import { findLinks, stretchCandidates, dropText, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer } from '../lib/links.js';
 import { h, icon } from './dom.js';
-import { modKey } from '../lib/platform.js';
+import { modKey, imagePasteKey } from '../lib/platform.js';
 import { paintLinks } from './linkpaint.js';
 import { findBar } from './findbar.js';
 
@@ -124,11 +124,11 @@ async function withBareNames(buf, id, text, end, found) {
 for (const ev of ['dragover', 'drop']) document.addEventListener(ev, e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
 
 // The clipboard into a pane's prompt (#352): text as a paste, an image through Claude Code's
-// image paste (Alt+V on Windows).
+// image paste (Alt+V on Windows, Ctrl+V on a Mac).
 function pasteClipboard(id, t) {
   const c = window.deck.clipboardKind();
   if (c.kind === 'text') t.term.paste(c.text);
-  else if (c.kind === 'image') window.deck.write(id, '\x1bv');
+  else if (c.kind === 'image') window.deck.write(id, imagePasteKey());
 }
 
 let onLinkFail = null;
@@ -156,7 +156,7 @@ function entry(id) {
   term.registerLinkProvider(links);
   // Ctrl+V pastes the clipboard the way Windows Terminal does (#352): xterm alone sends a raw
   // Ctrl+V, which Claude Code only reads as an image paste. Text goes in as a paste; an image
-  // as Claude Code's image paste (Alt+V on Windows), so it attaches as [Image #n].
+  // as Claude Code's image paste (Alt+V on Windows, Ctrl+V on a Mac), so it attaches as [Image #n].
   // Ctrl+Shift+F finds in the pane (#360); Ctrl+F stays with Claude Code and the shell.
   let find = null;
   term.attachCustomKeyEventHandler(e => {
@@ -166,7 +166,7 @@ function entry(id) {
     }
     if (e.type === 'keydown' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && /^v$/i.test(e.key)) {
       const c = window.deck.clipboardKind();
-      if (c.kind !== 'none') { e.preventDefault(); if (c.kind === 'text') term.paste(c.text); else window.deck.write(id, '\x1bv'); return false; }
+      if (c.kind !== 'none') { e.preventDefault(); if (c.kind === 'text') term.paste(c.text); else window.deck.write(id, imagePasteKey()); return false; }
     }
     return keyFilter(e, id);
   });
@@ -236,7 +236,7 @@ export function mount(id, parent) {
       t.term.textarea.addEventListener('paste', e => {
         t.pastedAt = Date.now();
         const data = e.clipboardData;
-        if (data && !data.getData('text/plain') && [...data.items].some(i => i.type.startsWith('image/'))) window.deck.write(id, '\x1bv');
+        if (data && !data.getData('text/plain') && [...data.items].some(i => i.type.startsWith('image/'))) window.deck.write(id, imagePasteKey());
       }, true);
       t.term.textarea.addEventListener('beforeinput', e => {
         if (e.inputType !== 'insertFromPaste') return;

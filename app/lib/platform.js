@@ -18,6 +18,9 @@ export const MOD_NAME = MAC ? 'Cmd' : 'Ctrl';
 // The shortcut key alone held (not the other of Ctrl and Cmd).
 export const modKey = (e, mac = MAC) => (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 
+// Claude Code's image-paste key: Alt+V (ESC v) on Windows, Ctrl+V on a Mac (#2562).
+export const imagePasteKey = (mac = MAC) => (mac ? '\x16' : '\x1bv');
+
 // What types the owner's voice into a box: Windows voice typing, or macOS Dictation.
 export const VOICE_NAME = MAC ? 'Dictation' : 'Windows voice typing';
 
