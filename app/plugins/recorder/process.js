@@ -41,6 +41,17 @@ export function findWhisperCli(dir, depth = 0) {
   return null;
 }
 
+// On a Mac (#2562) Editbay ships whisper-cli inside its app and keeps only the models in its
+// speech folder, and Homebrew puts it on the PATH: after the Whisper folder, those are tried.
+export const EDITBAY_WHISPER = '/Applications/Editbay.app/Contents/Resources/whisper/whisper-cli';
+export function whisperCli(dir, { mac = process.platform === 'darwin', exists = fs.existsSync, envPath = process.env.PATH || '', editbay = EDITBAY_WHISPER } = {}) {
+  const own = findWhisperCli(dir);
+  if (own || !mac) return own;
+  if (exists(editbay)) return editbay;
+  for (const d of envPath.split(':')) if (d && exists(`${d.replace(/\/+$/, '')}/whisper-cli`)) return `${d.replace(/\/+$/, '')}/whisper-cli`;
+  return null;
+}
+
 const files = dir => ({ video: videoFile(dir), wav: path.join(dir, 'audio.wav'), json: path.join(dir, 'transcript.json'), md: path.join(dir, 'transcript.md') });
 
 // The video written again with its length and seek index, so players can seek it (#1017).
@@ -80,7 +91,7 @@ export async function transcriptStep(dir, settings, fake, session) {
   else if (session.mic === false) fs.writeFileSync(f.json, JSON.stringify({ transcription: [] }));
   else {
     const wdir = expandEnv(settings.whisperDir, process.env);
-    const cli = findWhisperCli(wdir);
+    const cli = whisperCli(wdir);
     if (!cli) throw new Error(`${exeName('whisper-cli')} is not in ${wdir}. Set the Whisper folder in Settings`);
     const model = path.isAbsolute(expandEnv(settings.model, process.env)) ? expandEnv(settings.model, process.env) : path.join(wdir, settings.model);
     if (!fs.existsSync(model)) throw new Error(`The Whisper model ${model} is missing`);

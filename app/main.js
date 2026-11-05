@@ -979,6 +979,9 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500, height: 900, minWidth: 900, minHeight: 560,
     backgroundColor: '#0e0e10', title: APP_NAME, autoHideMenuBar: true, show: !HIDDEN,
+    // A Mac fits a window to its screen; the hidden smoke window keeps its size on a small one,
+    // such as the Mac runner's 1024x684 (#2562).
+    enableLargerThanScreen: HIDDEN && !WIN,
     icon: path.join(APP_DIR, 'build', 'icon.ico'),
     webPreferences: { preload: path.join(APP_DIR, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: !HIDDEN },
   });

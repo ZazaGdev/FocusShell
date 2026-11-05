@@ -12,7 +12,7 @@ import { cropFor } from './lib/area.js';
 import { areaWindows } from './area.js';
 import { writesFor, ctoLine, talkLine, noCtoReason } from './lib/send.js';
 import { createRecording, save, loadAll, append, size, remove, videoFile } from './store.js';
-import { STEP_RUN, killAll, findWhisperCli, thumbnail } from './process.js';
+import { STEP_RUN, killAll, whisperCli, thumbnail } from './process.js';
 import { brainstormer } from './brainstorm.js';
 import { expired, keptPath } from './lib/cleanup.js';
 
@@ -155,13 +155,15 @@ export function activate(host) {
   host.handle('state', () => view());
   // Settings' dropdowns (#407): what was found for a setting, and Choose... for another folder or file.
   const defaults = Object.fromEntries(manifest.settings.map(f => [f.key, f.default]));
-  host.handle('choices', key => choicesFor(String(key), host.settings(), { env: process.env, defaults, findCli: findWhisperCli }));
+  host.handle('choices', key => choicesFor(String(key), host.settings(), { env: process.env, defaults, findCli: d => whisperCli(d) }));
   host.handle('pickPath', async key => {
     const f = manifest.settings.find(x => x.key === key && x.pick);
     if (!f) return null;
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const r = await dialog.showOpenDialog(win, f.pick === 'file'
-      ? { title: f.label, properties: ['openFile'], filters: [{ name: 'Programs', extensions: ['exe'] }] }
+      // A Mac's programs have no .exe, and may sit inside an app bundle (#2562).
+      ? (process.platform === 'win32' ? { title: f.label, properties: ['openFile'], filters: [{ name: 'Programs', extensions: ['exe'] }] }
+        : { title: f.label, properties: ['openFile', 'treatPackageAsDirectory'] })
       : { title: f.label, properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0] || null;
   });

@@ -18,6 +18,26 @@ import os from 'node:os';
 import { expandEnv, exeName } from '../plugins/recorder/lib/transcript.js';
 import { choicesFor } from '../plugins/recorder/lib/choices.js';
 
+test('a Mac finds whisper-cli in Editbay\'s app or on the PATH when the Whisper folder holds only models', async () => {
+  const { whisperCli } = await import('../plugins/recorder/process.js');
+  const models = fs.mkdtempSync(path.join(os.tmpdir(), 'models-'));
+  fs.writeFileSync(path.join(models, 'ggml-tiny.en.bin'), '');
+  const editbay = '/Applications/Editbay.app/Contents/Resources/whisper/whisper-cli';
+  assert.equal(whisperCli(models, { mac: true, exists: p => p === editbay, envPath: '', editbay }), editbay);
+  assert.equal(whisperCli(models, { mac: true, exists: p => p === '/opt/homebrew/bin/whisper-cli', envPath: '/usr/bin:/opt/homebrew/bin', editbay }), '/opt/homebrew/bin/whisper-cli');
+  assert.equal(whisperCli(models, { mac: true, exists: () => false, envPath: '/usr/bin', editbay }), null);
+  assert.equal(whisperCli(models, { mac: false, exists: () => true, envPath: '/usr/bin', editbay }), null, 'Windows looks in the Whisper folder only, as before');
+  fs.rmSync(models, { recursive: true, force: true });
+});
+
+test('a Mac says where to allow the microphone when it is refused', async () => {
+  const { micError, MIC_PERMISSION } = await import('../plugins/recorder/lib/permissions.js');
+  assert.equal(micError({ name: 'NotAllowedError', message: 'Permission denied' }, true), MIC_PERMISSION);
+  assert.match(MIC_PERMISSION, /Privacy & Security > Microphone/);
+  assert.equal(micError({ name: 'NotAllowedError', message: 'Permission denied' }, false), 'the mic could not be opened (Permission denied)', 'Windows unchanged');
+  assert.equal(micError({ name: 'NotFoundError', message: 'Requested device not found' }, true), 'the mic could not be opened (Requested device not found)');
+});
+
 test('the recorder finds whisper-cli and ffmpeg without .exe on a Mac, under ~/', () => {
   assert.equal(expandEnv('~/Library/Application Support/editbay/speech', { HOME: '/Users/a' }), '/Users/a/Library/Application Support/editbay/speech');
   assert.equal(expandEnv('~/x', { HOME: 'C:\\Users\\a' }), '~/x', 'a Windows HOME (Git Bash) leaves it as written');

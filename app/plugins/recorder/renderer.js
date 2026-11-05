@@ -6,6 +6,8 @@ import { buttonFor } from './lib/session.js';
 import { micLevel, micLit } from './lib/area.js';
 import { reviewScreen, shapeOf } from './screens/review.js';
 import { videosView } from './screens/videos.js';
+import { micError } from './lib/permissions.js';
+import { MAC } from '../../lib/platform.js';
 
 const STEP_LABEL = { audio: 'Pulling out the sound', transcript: 'Transcribing with Whisper', items: 'Finding the items in what you said', screenshots: 'Taking the screenshots' };
 const MIME = 'video/webm;codecs=vp8,opus';
@@ -135,7 +137,7 @@ export function mount(ui) {
       try { voice = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch (e) {
         area.end();
         for (const t of video.getTracks()) t.stop();
-        throw new Error(`the mic could not be opened (${e.message})`);
+        throw new Error(micError(e, MAC));
       }
     }
     const meter = voice ? micMeter(voice) : () => {};

@@ -35,6 +35,17 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # The recorder's processing with the real programs (chunk 8): a spoken test video through
+      # ffmpeg and whisper-cli into a transcript, and a frame grabbed from it.
+      - name: Recorder processing
+        run: |
+          brew install ffmpeg whisper-cpp
+          mkdir -p ../state/rec-check/rec ../state/rec-check/speech
+          curl -sSL -o ../state/rec-check/speech/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          say -o ../state/rec-check/s.aiff "Add a dark mode toggle to the settings page."
+          ffmpeg -v error -y -f lavfi -i color=c=gray:s=320x180:d=5 -i ../state/rec-check/s.aiff -shortest -c:v libvpx -c:a libopus ../state/rec-check/rec/video.webm
+          node plugins/recorder/check-process.mjs ../state/rec-check/rec ../state/rec-check/speech/ggml-tiny.en.bin "dark mode"
+
       - name: Key helper
         run: |
           npm run keystate
@@ -60,6 +71,8 @@ jobs:
             git -C "$d" init -q && git -C "$d" add -A && git -C "$d" -c user.name=smoke -c user.email=smoke@example.com commit -q -m "first"
           done
           ls "$GITHUB_WORKSPACE/.."
+          # A short zsh prompt, as on a person's Mac, not the runner's long host name.
+          echo "PROMPT='%1~ %# '" >> ~/.zshrc
 
       # The smoke run uses fake sessions (no Claude); its FAILED lines are read from the log and
       # the screenshots, so they do not stop the build. A run that wrote nothing, or ran out of
