@@ -15,7 +15,7 @@
     "test": "node --test lib/lib.test.js",
     "dist": "npm run sketch && npm run room && npm run seed && electron-builder --win nsis",
     "pack": "npm run sketch && npm run room && npm run seed && electron-builder --win dir",
-    "keystate": "swiftc -O native/keystate.swift -o native/bin/keystate",
+    "keystate": "mkdir -p native/bin && swiftc -O native/keystate.swift -o native/bin/keystate",
     "dist:mac": "npm run sketch && npm run room && npm run seed && npm run keystate && electron-builder --mac --arm64 --publish never",
     "sketch": "vite build --config sketch/vite.config.js",
     "postinstall": "npm run sketch && npm run room && node build/name-electron.cjs",
