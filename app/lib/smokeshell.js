@@ -7,5 +7,6 @@ export function shLine(s) {
   const body = end ? str.slice(0, -1) : str;
   if (!/^(cls|echo )/.test(body)) return str;
   const q = t => `'${t.replace(/\^>/g, '>').replace(/'/g, "'\\''")}'`;
-  return body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `echo ${q(p.slice(5))}` : p)).join('; ') + end;
+  // printf, not echo: zsh's echo reads backslashes, cmd's prints them.
+  return body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `printf '%s\\n' ${q(p.slice(5))}` : p)).join('; ') + end;
 }

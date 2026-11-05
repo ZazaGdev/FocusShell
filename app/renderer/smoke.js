@@ -1583,18 +1583,21 @@ export async function smoke(app) {
     await req('smoke-no', 'echo should-not-appear');
     await req('smoke-x', 'echo x-should-not-appear');
     // This one comes the CTO's way, through deck ask-owner (#2562), which names its own id.
-    const yes = await deck.smokeAsk(who, String.raw`echo typed-on-click D:\new\back\test`, 'Edit a file outside its folder?', 7);
+    // A path whose backslashes must reach the pane as they are; a Mac's sh reads \n in echo, so
+    // there it is a Mac path (#2562).
+    const typedPath = MAC ? '/new/back/test' : String.raw`D:\new\back\test`;
+    const yes = await deck.smokeAsk(who, `echo typed-on-click ${typedPath}`, 'Edit a file outside its folder?', 7);
     const refused = await req('smoke-bad', 'echo one\necho two');
     await wait(600); // the request is taken when the watcher sees it
     app.view = 'home'; render(); await wait(600);
     const shown = !!yes && !!card(yes) && !!card('smoke-no') && !card('smoke-bad');
-    const exact = card(yes)?.querySelector('.pwordsbox')?.textContent === String.raw`echo typed-on-click D:\new\back\test`;
+    const exact = card(yes)?.querySelector('.pwordsbox')?.textContent === `echo typed-on-click ${typedPath}`;
     await deck.smokeShot('home-words');
     [...card('smoke-no').querySelectorAll('button')].find(b => b.textContent === 'Decline').click();
     card('smoke-x').querySelector('.wbdrop').click(); await wait(1500); // the X counts as Decline (#1278)
     const quiet = !(await T.screen(who)).some(r => r.includes('should-not-appear'));
     card(yes).querySelector('.btn.primary').click(); await wait(2500);
-    const typed = (await T.screen(who)).some(r => r.trim() === String.raw`typed-on-click D:\new\back\test`);
+    const typed = (await T.screen(who)).some(r => r.trim() === `typed-on-click ${typedPath}`);
     await req('smoke-closed', 'echo nowhere', { project: 'NoSuchOpenProject' });
     render(); await wait(400);
     card('smoke-closed')?.querySelector('.btn.primary').click(); await wait(800);
