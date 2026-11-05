@@ -40,16 +40,30 @@ jobs:
           npm run keystate
           lipo -archs native/bin/keystate
 
-      # The smoke run uses fake sessions (no Claude); its failures are read from the log and
-      # the screenshots, so this step never stops the build.
+      - name: node-pty's helper can run
+        run: test -x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper || { echo "spawn-helper is not executable: no pane can start"; exit 1; }
+
+      # The Code pane needs VS Code installed (chunk 6).
+      - name: VS Code
+        run: |
+          brew install --cask visual-studio-code
+          test -x "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+      # The smoke run uses fake sessions (no Claude); its FAILED lines are read from the log and
+      # the screenshots, so they do not stop the build. A run that wrote nothing, or ran out of
+      # time, does: the job is marked failed at the end, after the files are uploaded.
       - name: Smoke run
+        id: smoke
         continue-on-error: true
         env:
           FOCUSSHELL_SMOKE_MINUTES: '20'
         run: |
-          npx electron . --smoke 2>&1 | tail -40
+          mkdir -p ../state
+          npx electron . --smoke 2>&1 | tail -40 | tee ../state/smoke-console.txt
           echo "FAILED lines: $(grep -c '^FAILED' ../state/smoke/log.txt || true)"
           grep '^FAILED' ../state/smoke/log.txt | head -60 || true
+          test -s ../state/smoke/log.txt || { echo "the smoke run wrote no log"; exit 1; }
+          ! grep -q 'did not finish within' ../state/smoke-console.txt || { echo "the smoke run timed out"; exit 1; }
 
       - name: Build
         run: |
@@ -63,7 +77,8 @@ jobs:
           codesign -dv "$APP" 2>&1 | head -5
           PTY="$APP/Contents/Resources/app/node_modules/node-pty/prebuilds/darwin-arm64"
           lipo -archs "$PTY/pty.node"
-          test -x "$PTY/spawn-helper" && echo "spawn-helper is executable"
+          test -x "$PTY/spawn-helper" || { echo "the packed spawn-helper is not executable"; exit 1; }
+          echo "spawn-helper is executable"
           lipo -archs "$APP/Contents/Resources/app/native/bin/keystate"
           ls -la dist/*.dmg dist/*.zip
 
@@ -108,5 +123,12 @@ jobs:
           path: |
             state/smoke/*.png
             state/smoke/log.txt
+            state/smoke-console.txt
             state/open/*.png
           if-no-files-found: warn
+
+      - name: Smoke run verdict
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "The smoke run did not complete (see its step); the build above still uploaded."
+          exit 1

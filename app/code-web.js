@@ -45,7 +45,7 @@ export function registerCodeWeb(d) {
     return dirs.map(d => path.join(d, 'Code.exe')).find(p => fs.existsSync(p)) || null;
   }
   // On a Mac (#2562): the app bundle's code and code-tunnel.
-  const mac = () => macCodePaths(os.homedir(), p => fs.existsSync(p));
+  const mac = () => macCodePaths(os.homedir(), p => fs.existsSync(p), (process.env.PATH || '').split(':'), p => { try { return fs.realpathSync(p); } catch { return p; } });
   // The folder that holds VS Code's resources\app (Code.exe's folder; a Mac bundle's Contents).
   const codeHome = () => {
     if (WIN) { const exe = codeExe(); return exe ? path.dirname(exe) : ''; }

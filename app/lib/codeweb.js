@@ -57,13 +57,19 @@ export function isCodeUrl(url, port) {
   } catch { return false; }
 }
 
-// VS Code on a Mac (#2562): the app in /Applications (or ~/Applications), its `code` command
-// for opening folders and `code-tunnel` for the Code pane, both inside the bundle.
-// { cli, tunnel } or null; exists(path) says what is on disk.
-export function macCodePaths(home, exists) {
+// VS Code on a Mac (#2562): the app in /Applications (or ~/Applications), else wherever the
+// `code` command on PATH leads (a bundle left in Downloads, or renamed); its `code` command for
+// opening folders and `code-tunnel` for the Code pane, both inside the bundle.
+// { cli, tunnel } or null; exists(path) says what is on disk, realpath follows a link.
+export function macCodePaths(home, exists, pathDirs = [], realpath = p => p) {
   for (const base of ['/Applications', `${String(home).replace(/\/+$/, '')}/Applications`]) {
     const bin = `${base}/Visual Studio Code.app/Contents/Resources/app/bin`;
     if (exists(`${bin}/code`)) return { cli: `${bin}/code`, tunnel: `${bin}/code-tunnel` };
+  }
+  for (const d of pathDirs) {
+    if (!d || !exists(`${d.replace(/\/+$/, '')}/code`)) continue;
+    const real = realpath(`${d.replace(/\/+$/, '')}/code`);
+    if (/\/Contents\/Resources\/app\/bin\/code$/.test(real)) return { cli: real, tunnel: real.replace(/code$/, 'code-tunnel') };
   }
   return null;
 }

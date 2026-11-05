@@ -46,6 +46,10 @@ test('a Mac finds VS Code in Applications, then in the home folder\'s', () => {
   assert.deepEqual(macCodePaths('/Users/a', p => p === `${bin('/Applications')}/code`), { cli: `${bin('/Applications')}/code`, tunnel: `${bin('/Applications')}/code-tunnel` });
   assert.deepEqual(macCodePaths('/Users/a/', p => p === `${bin('/Users/a/Applications')}/code`).cli, `${bin('/Users/a/Applications')}/code`);
   assert.equal(macCodePaths('/Users/a', () => false), null);
+  const dl = '/Users/a/Downloads/Visual Studio Code.app/Contents/Resources/app/bin/code';
+  assert.deepEqual(macCodePaths('/Users/a', p => p === '/usr/local/bin/code', ['/opt/homebrew/bin', '/usr/local/bin'], p => (p === '/usr/local/bin/code' ? dl : p)),
+    { cli: dl, tunnel: dl.replace(/code$/, 'code-tunnel') }, 'the code command on PATH leads to the bundle');
+  assert.equal(macCodePaths('/Users/a', p => p === '/usr/local/bin/code', ['/usr/local/bin']), null, 'a code that is not VS Code\'s is not taken');
 });
 
 test('a Mac\'s process list finds a Code pane server whose app is gone', () => {
