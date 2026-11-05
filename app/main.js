@@ -17,7 +17,7 @@ import { missingTools } from './lib/requirements.js';
 import { nextShared } from './lib/counter.js';
 import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraOf, projectOf, extraLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, CLAUDE, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs, posixSpawn } from './lib/sessions.js';
 import { isWin, loginPath } from './lib/shell.js';
-import { isAbsPath, expandHome } from './lib/platform.js';
+import { isAbsPath, onDisk } from './lib/localpath.js';
 import { ACCESSIBILITY } from './lib/keystate.js';
 import { tellOnce } from './permission-note.js';
 import { normalizeGroups, findGroup, managerFor, groupOfMgr, isMgr } from './lib/groups.js';
@@ -634,8 +634,7 @@ ipcMain.handle('tavern:tasksDone', () => tasksDone(readData().tasks));
 ipcMain.handle('tavern:usage', () => fiveHour(path.join(os.homedir(), '.claude', 'usage')));
 
 // The longest of these paths that exists, for links whose path contains spaces.
-// "~/x" on a Mac is looked for under the home folder.
-const onDisk = p => path.normalize(expandHome(p, os.homedir()));
+// "~/x" on a Mac is looked for under the home folder (onDisk).
 ipcMain.handle('path:longest', (_e, list) => {
   const ok = (Array.isArray(list) ? list : []).filter(p => typeof p === 'string' && isAbsPath(p));
   return [...ok].reverse().find(p => { try { return fs.existsSync(onDisk(p)); } catch { return false; } }) || null;

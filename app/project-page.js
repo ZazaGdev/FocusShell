@@ -12,7 +12,7 @@ import { readmeSummary } from './lib/readme.js';
 import { pushAllowed } from './lib/pushperm.js';
 import { rollRepeat } from './lib/me.js';
 import { parsePlan, setPlan, setTaskKey, PLAN_KEYS } from './lib/plan.js';
-import { isAbsPath } from './lib/platform.js';
+import { isAbsPath, onDisk } from './lib/localpath.js';
 
 // d: { ipcMain, P, DECK, read, readData, board, nowStamp, loadProjects, loadTrusted, findProject }
 export function registerProjectPage(d) {
@@ -144,7 +144,7 @@ export function registerProjectPage(d) {
     const p = findProject(project), out = [];
     const add = f => { if (!out.includes(f) && fs.existsSync(f) && fs.statSync(f).isFile()) out.push(f); };
     for (const x of paths) {
-      if (isAbsPath(x)) add(path.normalize(x));
+      if (isAbsPath(x)) add(onDisk(x));
       else {
         if (p) add(path.join(p.path, x));
         add(path.join(DECK, x));

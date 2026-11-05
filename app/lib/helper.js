@@ -83,10 +83,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // read: a folder the turn may read files in with the Read tool and nothing else (#2185).
 export function helperCommand({ promptFile, session, model = 'haiku', effort = 'low', read = null }, platform = process.platform) {
   const bad = platform === 'win32' ? /["\r\n]/ : /["\r\n$`\\]/;
-  const reads = read && !bad.test(read) ?['--tools', 'Read', '--allowedTools', 'Read', '--add-dir', `"${read}"`] : ['--tools', '""'];
+  const reads = read && !bad.test(read) ? ['--tools', 'Read', '--allowedTools', 'Read', '--add-dir', `"${read}"`] : ['--tools', '""'];
   const parts = ['claude', '-p', ...(/^(fable|opus|sonnet|haiku)$/.test(model || '') ? ['--model', model] : []), ...reads, '--strict-mcp-config', '--disable-slash-commands',
     '--setting-sources', '""', '--effort', /^(low|medium|high)$/.test(effort) ? effort : 'low', '--output-format', 'json'];
   if (session && UUID.test(session)) parts.push('--resume', session);
-  else if (promptFile && !bad.test(promptFile))parts.push('--system-prompt-file', `"${promptFile}"`);
+  else if (promptFile && !bad.test(promptFile)) parts.push('--system-prompt-file', `"${promptFile}"`);
   return parts.join(' ');
 }

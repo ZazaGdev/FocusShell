@@ -72,6 +72,12 @@ test('a Mac says a new version is out instead of installing it', () => {
   assert.equal(updateLabel({ ready: true, latest: '2.1.1' }), 'Update ready: v2.1.1', 'Windows unchanged');
 });
 
+test('a "~/" path is opened under the home folder, everything else as it is', async () => {
+  const { onDisk } = await import('./localpath.js');
+  assert.equal(onDisk('~/Desktop/notes.md', '/Users/a'), path.normalize('/Users/a/Desktop/notes.md'));
+  assert.equal(onDisk('D:\\x\\y.md', '/Users/a'), path.normalize('D:\\x\\y.md'));
+});
+
 test('an absolute path is a drive path on Windows and a root or home path on a Mac', () => {
   assert.ok(isAbsPath('D:\\x', false) && isAbsPath('D:/x', false));
   assert.ok(!isAbsPath('/Users/a/x', false), 'Windows unchanged');

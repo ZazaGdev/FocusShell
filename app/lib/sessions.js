@@ -44,8 +44,9 @@ export function keepShell(args) {
 // command line names it as "!FS_An!": cmd, started with /V:ON, expands those only after it has
 // parsed the line, so the value is passed as it is and nothing in it runs (#1126). A folder
 // name Windows itself allows always starts; only " (which Windows does not allow) is refused.
-export function nameProblem(name) {
-  return /"/.test(String(name)) ? `cannot start: the folder name "${name}" holds ", which Windows does not allow in a folder name.` : null;
+// A Mac passes every argument as it is (posixSpawn), so no name is refused there (#2562).
+export function nameProblem(name, platform = process.platform) {
+  return platform === 'win32' && /"/.test(String(name)) ? `cannot start: the folder name "${name}" holds ", which Windows does not allow in a folder name.` : null;
 }
 
 // The command line for cmd.exe and the environment it needs: { line, env }. keepShell's own

@@ -1812,7 +1812,8 @@ test('a Claude session keeps its shell after Claude exits (#353)', () => {
 });
 test('a folder name or path with cmd special characters starts, and nothing in it runs (#388, #1126)', () => {
   for (const ok of ['FocusShell', 'My Project-2.0_x', 'R&D', 'x|y', 'a^b', '50%', 'hi!', 'a(b)', 'New folder - Copy (4)']) assert.equal(nameProblem(ok), null, ok);
-  assert.match(nameProblem('q"t'), /cannot start: .*Windows does not allow/);
+  assert.match(nameProblem('q"t', 'win32'), /cannot start: .*Windows does not allow/);
+  assert.equal(nameProblem('q"t', 'darwin'), null, 'a Mac passes it as it is (#2562)');
   const { line, env } = commandLine(keepShell(leadArgs('a & b', 'C:\\Users\\A&B\\AppData\\deck\\state\\prompts\\lead-a & b.md')));
   assert.match(line, /^\/V:ON \/k claude -n "!FS_A3!" --remote-control "!FS_A5!" /);
   assert.equal(env.FS_A3, 'lead-a & b');

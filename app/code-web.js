@@ -11,7 +11,7 @@ import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { projectForPath } from './lib/projects.js';
 import { serveWebArgs, servePort, codeUrl, isCodeUrl, orphanServers, macCodePaths, parsePs, PS_ARGS } from './lib/codeweb.js';
-import { isAbsPath } from './lib/platform.js';
+import { isAbsPath, onDisk } from './lib/localpath.js';
 import { isWin, killTree } from './lib/shell.js';
 
 const WIN = isWin();
@@ -27,7 +27,7 @@ export function registerCodeWeb(d) {
   // folder (VS Code reuses the window if the folder is already open). A file outside every
   // project opens with its own folder. Without the `code` command, the vscode:// link is used.
   ipcMain.handle('project:code', async (_e, name, file) => {
-    const f = file && isAbsPath(file) && fs.existsSync(path.normalize(file)) ? path.normalize(file) : null;
+    const f = file && isAbsPath(file) && fs.existsSync(onDisk(file)) ? onDisk(file) : null;
     if (file && !f) return false;
     const p = name ? findProject(name) : projectForPath(loadProjects().projects, f);
     const folder = p ? p.path : f && (fs.statSync(f).isDirectory() ? f : path.dirname(f));
@@ -182,7 +182,7 @@ export function registerCodeWeb(d) {
   // second lead's worktree, #126); a file outside it opens too, on its own.
   const real = d => { try { return fs.realpathSync.native(d); } catch { return d; } };
   async function paneDir(p, file, sessionId) {
-    const f = file ? path.normalize(String(file)) : null;
+    const f = file ? onDisk(String(file)) : null;
     const ok = !!f && isAbsPath(f) && fs.existsSync(f) && fs.statSync(f).isFile();
     const sess = sessionId ? sessions.get(sessionId) : null;
     let dir = sess && sess.cwd && fs.existsSync(sess.cwd) ? sess.cwd : p.path;
@@ -312,13 +312,13 @@ export function registerCodeWeb(d) {
   });
   // A clicked path that is a file on disk, normalised, or null (a folder, or not there).
   ipcMain.handle('path:file', (_e, file) => {
-    const f = isAbsPath(String(file || '')) ? path.normalize(String(file)) : null;
+    const f = isAbsPath(String(file || '')) ? onDisk(String(file)) : null;
     try { return f && fs.statSync(f).isFile() ? f : null; } catch { return null; }
   });
   // The project a file belongs to (the deepest folder that holds it), or null. A path through
   // a link (G:\SideProjects is a link to D:\SideProjects) is matched by real path too.
   ipcMain.handle('project:forFile', (_e, file) => {
-    const f = isAbsPath(String(file || '')) ? path.normalize(String(file)) : null;
+    const f = isAbsPath(String(file || '')) ? onDisk(String(file)) : null;
     const real = p => { try { return fs.realpathSync.native(p); } catch { return p; } };
     const list = loadProjects().projects;
     const p = f && fs.existsSync(f) ? projectForPath(list, f) || projectForPath(list.map(x => ({ ...x, path: real(x.path) })), real(f)) : null;

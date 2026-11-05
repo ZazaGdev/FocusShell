@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expandEnv, exeName } from './transcript.js';
-import { onPath } from '../../../lib/requirements.js';
+import { onPath as onPathOn } from '../../../lib/requirements.js';
 
 const exists = f => { try { return fs.statSync(f).isFile(); } catch { return false; } };
 const uniq = list => list.filter((c, i) => c.value && list.findIndex(o => o.value.toLowerCase() === c.value.toLowerCase()) === i);
@@ -25,6 +25,8 @@ function filesUnder(dir, keep, depth = 2, rel = '') {
 export function choicesFor(key, s, d) {
   const env = d.env || process.env, x = v => expandEnv(String(v || ''), env);
   const cli = exeName('whisper-cli', d.win), ff = exeName('ffmpeg', d.win);
+  const platform = d.win === undefined ? process.platform : d.win ? 'win32' : 'darwin';
+  const onPath = (name, e) => onPathOn(name, e, platform);
   if (key === 'whisperDir') {
     const dirs = [s.whisperDir, d.defaults.whisperDir];
     for (const p of (env.PATH || env.Path || '').split(path.delimiter)) if (p && exists(path.join(p, cli))) dirs.push(p);
