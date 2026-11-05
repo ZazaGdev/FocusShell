@@ -1408,7 +1408,7 @@ test('helper command keeps settings out, resumes by id, and refuses odd input', 
   assert.match(helperCommand({ promptFile: 'x', effort: 'medium' }), /--effort medium/);
   assert.match(helperCommand({ promptFile: 'x', effort: 'x & del' }), /--effort low/);
   // The recorder's card step may read its screen frames, with Read only (#2185).
-  assert.match(helperCommand({ promptFile: 'x', read: 'D:\\r 1\\frames' }), / --tools Read --allowedTools Read --add-dir "D:\\r 1\\frames" /);
+  assert.match(helperCommand({ promptFile: 'x', read: 'D:\\r 1\\frames' }, 'win32'), / --tools Read --allowedTools Read --add-dir "D:\\r 1\\frames" /);
   assert.match(helperCommand({ promptFile: 'x', read: 'a"b' }), /--tools "" /);
 });
 
@@ -1872,12 +1872,13 @@ test('Claude Code is found as claude.exe or claude.cmd, and a missing tool shows
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'req-')), a = path.join(tmp, 'a'), b = path.join(tmp, 'b');
   fs.mkdirSync(a); fs.mkdirSync(b);
   fs.writeFileSync(path.join(a, 'claude.exe'), ''); fs.writeFileSync(path.join(b, 'node.cmd'), ''); fs.writeFileSync(path.join(b, 'claude'), '');
-  const env = { PATH: [a, b].join(path.delimiter), PATHEXT: '.COM;.EXE;.BAT;.CMD' };
-  assert.equal(onPath('claude', env), true);
-  assert.equal(onPath('node', env), true);
-  assert.equal(onPath('claude', { ...env, PATH: b }), false, 'an extensionless npm shell script is not something cmd runs');
-  assert.equal(onPath('claude', { PATH: `"${a}"` }), true, 'quoted PATH folder, default PATHEXT');
-  assert.equal(onPath('git', env), false);
+  // Windows' rule, on any system (#2562: a Mac's is in shell.test.js).
+  const env = { PATH: [a, b].join(';'), PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+  assert.equal(onPath('claude', env, 'win32'), true);
+  assert.equal(onPath('node', env, 'win32'), true);
+  assert.equal(onPath('claude', { ...env, PATH: b }, 'win32'), false, 'an extensionless npm shell script is not something cmd runs');
+  assert.equal(onPath('claude', { PATH: `"${a}"` }, 'win32'), true, 'quoted PATH folder, default PATHEXT');
+  assert.equal(onPath('git', env, 'win32'), false);
   assert.deepEqual(missingTools(() => true), []);
   const miss = missingTools(t => t !== 'node');
   assert.deepEqual(miss.map(m => m.name), ['Node.js']);
