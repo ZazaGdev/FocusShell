@@ -78,6 +78,7 @@ jobs:
           grep '^FAILED' ../state/smoke/log.txt | head -60 || true
           test -s ../state/smoke/log.txt || { echo "the smoke run wrote no log"; exit 1; }
           ! grep -q 'did not finish within' ../state/smoke-console.txt || { echo "the smoke run timed out"; exit 1; }
+          ! grep -q 'smoke run failed in the page' ../state/smoke-console.txt || { echo "the smoke run stopped early on a check that ends it"; exit 1; }
 
       - name: Build
         run: |
