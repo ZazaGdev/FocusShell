@@ -49,6 +49,7 @@ test('the smoke run\'s cmd lines are said in sh\'s words on a Mac', async () => 
   assert.equal(shLine('cls\r'), 'clear\r');
   assert.equal(shLine('cls & echo  Do you want to proceed? & echo  ^> 1. Yes\r'), "clear; printf '%s\\n' ' Do you want to proceed?'; printf '%s\\n' ' > 1. Yes'; printf '\\n'\r");
   assert.equal(shLine("echo it's\r"), "printf '%s\\n' 'it'\\''s'; printf '\\n'\r");
+  assert.equal(shLine('cls & title focusshell-claude-ended\r'), "clear; printf '\\033]0;%s\\007' 'focusshell-claude-ended'\r");
   assert.equal(shLine('typed-1387'), 'typed-1387', 'text typed into a prompt goes as it is');
   assert.equal(shLine('\x1b'), '\x1b');
 });

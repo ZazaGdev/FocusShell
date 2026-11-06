@@ -5,10 +5,12 @@
 export function shLine(s) {
   const str = String(s), end = /\r$/.test(str) ? '\r' : '';
   const body = end ? str.slice(0, -1) : str;
-  if (!/^(cls|echo )/.test(body)) return str;
+  if (!/^(cls|echo |title )/.test(body)) return str;
   const q = t => `'${t.replace(/\^>/g, '>').replace(/'/g, "'\\''")}'`;
   // printf, not echo: zsh's echo reads backslashes, cmd's prints them. cmd leaves a blank line
   // after a command's output, before its prompt, which ends a prompt's option list; so does this.
-  const parts = body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `printf '%s\\n' ${q(p.slice(5))}` : p));
+  // cmd's "title X" sets the window title, which sh does with an escape.
+  const parts = body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `printf '%s\\n' ${q(p.slice(5))}`
+    : p.startsWith('title ') ? `printf '\\033]0;%s\\007' ${q(p.slice(6))}` : p));
   return parts.join('; ') + (/(^|& )echo /.test(body) ? "; printf '\\n'" : '') + end;
 }

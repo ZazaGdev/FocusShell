@@ -1,0 +1,53 @@
+# FocusShell for Mac, the published file (#2562): downloads a release's .dmg as a person would,
+# checks it against the SHA-256 in the release notes, installs it quarantined, lets Gatekeeper
+# judge it (an unsigned app is refused until Open Anyway), opens it and takes screenshots.
+# Started by hand with the release tag.
+name: mac-release-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, such as v2.1.0
+        required: true
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download
+        run: |
+          mkdir -p dl shots
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir dl
+          ls -la dl
+
+      - name: SHA-256 matches the release notes
+        run: |
+          DMG=$(ls dl/*.dmg)
+          SUM=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          echo "$SUM  $DMG"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body | grep -qi "$SUM" || { echo "the release notes do not carry this file's SHA-256"; exit 1; }
+
+      - name: Install, Gatekeeper, open
+        run: |
+          DMG=$(ls dl/*.dmg)
+          hdiutil attach "$DMG" -nobrowse -mountpoint /Volumes/FocusShell
+          cp -R /Volumes/FocusShell/FocusShell.app /Applications/
+          hdiutil detach /Volumes/FocusShell
+          xattr -w com.apple.quarantine "0083;$(printf %x $(date +%s));Safari;" /Applications/FocusShell.app
+          spctl --assess --type execute -vv /Applications/FocusShell.app || echo "Gatekeeper refuses it, as expected for an unsigned app: users press Open Anyway"
+          xattr -dr com.apple.quarantine /Applications/FocusShell.app
+          open /Applications/FocusShell.app
+          for t in 10 25 45; do sleep $((t - ${last:-0})); last=$t; screencapture -x shots/open-${t}s.png; done
+          pgrep -fl "FocusShell.app/Contents/MacOS/FocusShell" || { echo "FocusShell is not running 45 seconds after opening"; exit 1; }
+          echo "FocusShell is running"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-check-screenshots
+          path: shots/*.png
