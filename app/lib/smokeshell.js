@@ -7,6 +7,8 @@ export function shLine(s) {
   const body = end ? str.slice(0, -1) : str;
   if (!/^(cls|echo )/.test(body)) return str;
   const q = t => `'${t.replace(/\^>/g, '>').replace(/'/g, "'\\''")}'`;
-  // printf, not echo: zsh's echo reads backslashes, cmd's prints them.
-  return body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `printf '%s\\n' ${q(p.slice(5))}` : p)).join('; ') + end;
+  // printf, not echo: zsh's echo reads backslashes, cmd's prints them. cmd leaves a blank line
+  // after a command's output, before its prompt, which ends a prompt's option list; so does this.
+  const parts = body.split(' & ').map(p => (p === 'cls' ? 'clear' : p.startsWith('echo ') ? `printf '%s\\n' ${q(p.slice(5))}` : p));
+  return parts.join('; ') + (/(^|& )echo /.test(body) ? "; printf '\\n'" : '') + end;
 }
