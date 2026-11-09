@@ -9,6 +9,7 @@ import { parseTasks, parseAsk } from '../lib/tasks.js';
 import { voiceInto, voiceDone } from './voice.js';
 import { tldr, gist, askOf } from '../lib/tldr.js';
 import { tldrFold } from './whiteboard.js';
+import { VOICE_NAME } from '../lib/platform.js';
 
 // The title of the task an item names, for its TLDR line (#1000).
 const titleOf = it => (it.project && it.n ? (parseTasks((ctxOf.tasksMd() || {})[it.project] || '').find(t => t.n === it.n) || {}).text : null) || null;
@@ -33,11 +34,13 @@ export function missedButton(id) {
 }
 
 // Checks every CTO pane on screen again: its log, then what is already on Waiting on you.
-let checking = null;
+// A check already under way may have read the log before this call, so one more runs after it.
+let checking = null, again = null;
 export function refreshMissed() {
   if (!ctxOf) return Promise.resolve();
-  if (!checking) checking = check().finally(() => { checking = null; });
-  return checking;
+  if (!checking) return (checking = check().finally(() => { checking = null; }));
+  const next = () => { again = null; return refreshMissed(); };
+  return (again ||= checking.then(next, next));
 }
 async function check() {
   const ids = [...new Set([...ctxOf.ctos(), ...[...document.querySelectorAll('.missbtn')].map(b => b.dataset.miss)])];
@@ -168,7 +171,7 @@ export function missedCard(it, mgr, after) {
       h('div', { class: 'msctx' }, before ? h('div', {}, before) : null, h('mark', {}, hit), next ? h('div', {}, next) : null)]),
     ...[summary, chips].filter(Boolean),
     h('div', { class: 'tdtalk' }, box,
-      h('button', { class: 'mic', title: 'Talk: Windows voice typing writes here, then press Send', onclick: () => el.listen() }, icon('mic')),
+      h('button', { class: 'mic', title: `Talk: ${VOICE_NAME} writes here, then press Send`, onclick: () => el.listen() }, icon('mic')),
       h('button', { class: 'btn primary', title: 'Send to the CTO (Enter)', onclick: () => say(box.value) }, 'Send')),
     hint,
     h('div', { class: 'msacts' },

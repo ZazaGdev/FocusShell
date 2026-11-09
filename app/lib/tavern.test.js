@@ -154,16 +154,17 @@ test('periods start at local midnight, the week on Monday', () => {
 test('the period board counts replies since its start, per agent, helpers apart, and reads only new lines', async () => {
   const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'chalk-')), since = Date.parse('2026-10-09T00:00:00Z');
   const line = (id, at, fresh) => JSON.stringify({ type: 'assistant', requestId: id, timestamp: at, message: { id, usage: { input_tokens: fresh, output_tokens: 0, cache_read_input_tokens: 1000 } } }) + '\n';
-  const lead = pathx.join(root, 'D--SideProjects-Habitly'), cto = pathx.join(root, 'D--SideProjects-FocusShell-manager');
+  const lead = pathx.join(root, 'D--Projects-Habitly'), cto = pathx.join(root, 'D--Projects-FocusShell-manager');
   fsx.mkdirSync(pathx.join(lead, 'c1', 'subagents'), { recursive: true }); fsx.mkdirSync(cto);
   const log = pathx.join(lead, 'c1.jsonl');
   fsx.writeFileSync(log, line('old', '2026-10-08T23:00:00Z', 500) + line('a', '2026-10-09T08:00:00Z', 10) + line('a', '2026-10-09T08:00:00Z', 10));
   fsx.writeFileSync(pathx.join(lead, 'c1', 'subagents', 'agent-1.jsonl'), line('s', '2026-10-09T09:00:00Z', 7));
   fsx.writeFileSync(pathx.join(cto, 'c2.jsonl'), line('b', '2026-10-09T10:00:00Z', 30));
-  let rows = await periodBoard(root, since);
+  const known = { roots: ['D:\\Projects'] };
+  let rows = await periodBoard(root, since, known);
   assert.deepEqual(rows.map(r => [r.who, r.kind, r.fresh, r.replies]), [['CTO', 'CTO', 30, 1], ['lead-Habitly', 'lead', 10, 1], ["lead-Habitly's helpers (1)", 'helpers', 7, 1]]);
   fsx.appendFileSync(log, line('c', '2026-10-09T11:00:00Z', 40) + '{"type":"assistant","half a line');
-  rows = await periodBoard(root, since);
+  rows = await periodBoard(root, since, known);
   assert.equal(rows[0].who, 'lead-Habitly'); assert.equal(rows[0].fresh, 50, 'appended replies are added once, a half-written line waits');
   assert.equal(rows[0].cacheRead, 2000);
   assert.deepEqual(await periodBoard(pathx.join(root, 'missing'), since), []);
@@ -226,6 +227,15 @@ test('agent names: the Demo\'s folders read as its CTO, PM and demo leads (#314)
   assert.equal(agentName('D--FocusShellDemo-deck-manager'), 'CTO');
   assert.equal(agentName('D--FocusShellDemo-deck-pm'), 'PM');
   assert.equal(agentName('D--FocusShellDemo-projects-Habitly'), 'lead-Habitly');
-  assert.equal(agentName('D--SideProjects-FocusShell-manager'), 'CTO');
-  assert.equal(agentName('D--SideProjects-Workout'), 'lead-Workout');
+  assert.equal(agentName('D--Projects-FocusShell-manager'), 'CTO');
+  assert.equal(agentName('D--Projects-Workout', { roots: ['D:\\Projects\\'] }), 'lead-Workout');
+});
+
+test('agent names: a lead is named after its project, by either drive it is reached by, else after its root', () => {
+  const known = { projects: [{ name: 'Budgetly', path: 'G:\\Code\\Budgetly' }, { name: 'Shop', path: 'D:\\Work\\shop-app' }], roots: ['D:\\Code', 'd:\\Labs'] };
+  assert.equal(agentName('G--Code-Budgetly', known), 'lead-Budgetly');
+  assert.equal(agentName('D--Work-shop-app', known), 'lead-Shop', 'the project name, not its folder');
+  assert.equal(agentName('D--Code-habit-tracker-app', known), 'lead-habit-tracker-app', 'a folder under a root keeps its dashes');
+  assert.equal(agentName('D--Labs-Atlas', known), 'lead-Atlas');
+  assert.equal(agentName('E--Other-Thing', known), 'lead-Other-Thing', 'outside every root: after the drive, as before');
 });

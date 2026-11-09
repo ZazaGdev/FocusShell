@@ -1,5 +1,6 @@
 // Old recordings deleted after the time the owner picked (#1030). The recording open in the
 // recorder never goes; the rest are timed from when they stopped (or started, if never stopped).
+import { MAC } from '../../../lib/platform.js';
 export const KEEP_FOR = { never: null, '24 hours': 24 * 3600e3, 'a week': 7 * 24 * 3600e3, 'a month': 30 * 24 * 3600e3 };
 export const KEEP_CHOICES = Object.keys(KEEP_FOR);
 
@@ -10,5 +11,9 @@ export function expired(sessions, keepFor, now = Date.now(), current = null) {
   return (sessions || []).filter(s => s && s.id && s.id !== current && now - (s.stoppedAt || s.startedAt || now) > ms).map(s => s.id);
 }
 
-// A screenshot's copy that outlives its recording: <keep>\<recording id>\<file name>.
-export const keptPath = (keep, id, shot) => `${String(keep).replace(/[\\/]+$/, '')}\\${id}\\${String(shot).split(/[\\/]/).pop()}`;
+// A screenshot's copy that outlives its recording: <keep>\<recording id>\<file name>, with
+// forward slashes on a Mac (#2562).
+export const keptPath = (keep, id, shot, mac = MAC) => {
+  const sep = mac ? '/' : '\\';
+  return `${String(keep).replace(/[\\/]+$/, '')}${sep}${id}${sep}${String(shot).split(/[\\/]/).pop()}`;
+};

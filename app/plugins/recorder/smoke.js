@@ -99,11 +99,21 @@ export async function recorderSmoke({ deck, app, render, wait }) {
   const badge = btn().querySelector('.plugl').textContent;
   if (fake && badge !== String(cards.length)) fail(`the button's badge reads "${badge}", not ${cards.length}`);
   await deck.smokeShot('recorder-badge');
+  // #1482: the button opens Recorded videos on this recording, and its Review button the cards.
   btn().click();
+  const sel = () => document.querySelector('.recvitem.sel');
+  if (!(await until(() => sel() && sel().dataset.rec === st.session.id, 5000))) fail('Recorded videos did not open on the new recording');
+  if (!document.querySelector('.recvnew')) fail('the new recording is not tagged Just recorded');
+  const acts = () => [...document.querySelectorAll('.recvacts .btn')].map(b => b.textContent);
+  console.log(`smoke: recorder videos list ${document.querySelectorAll('.recvitem').length} recordings, actions ${acts().join(', ')}`);
+  if (!['Play video', 'Open folder', 'Regenerate tasks', 'Talk to agent', 'Delete'].every(a => acts().includes(a))) fail(`the preview lacks an action: ${acts().join(', ')}`);
+  await wait(800);
+  await deck.smokeShot('recorder-videos');
+  if (!fake) return;
+  [...document.querySelectorAll('.recvacts .btn')].find(b => /^Review \d+ cards?$/.test(b.textContent))?.click();
   if (!(await until(() => document.querySelectorAll('.recgrid .plugcard').length === cards.length, 5000))) fail('the review does not show the cards');
   if (btn().querySelector('.plugl').textContent) fail('the badge stayed after the review was opened');
   console.log(`smoke: recorder badge ${badge} while waiting, gone once the review opened`);
-  if (!fake) { await wait(2000); await deck.smokeShot('recorder-review'); return; }
 
   if (cards.length !== 3) fail(`${cards.length} cards, not 3`);
   if (!cards.every(c => c.shots.length)) fail('a card has no screenshot');
@@ -169,10 +179,28 @@ export async function recorderSmoke({ deck, app, render, wait }) {
   if (!(await until(() => !document.querySelector('.recbs'), 5000))) fail('End brainstorm did not close the panel');
   if ((await state()).brainstormId) fail('the brainstorm session is still open');
 
-  // Accept all: the reminder lands on Me with its due time and the recording ends.
+  // Accept all: the reminder lands on Me with its due time, the recording ends and the modal is
+  // back on the list (#1482).
   document.querySelector('.recbar .plugsplit .btn:first-child').click();
   if (!(await until(() => !document.querySelector('.recgrid'), 5000))) fail('Accept all did not close the review');
   if ((await state()).session !== null) fail('the recording is still open after Accept all');
+  if (!(await until(() => document.querySelector('.recvids'), 5000))) fail('Recorded videos did not come back after Accept all');
+  // Talk to agent types the RECORDING TALK line for the CTO; Regenerate tasks reads it again and
+  // its three cards replace the old ones, which the review lists as already on the boards (#2185).
+  const actBtn = label => [...document.querySelectorAll('.recvacts .btn')].find(b => b.textContent === label);
+  const talk = await deck.plugin.invoke('recorder', 'talk', st.session.id);
+  if (!/^RECORDING TALK: Recording \d{4}-\d\d-\d\d \d\d:\d\d \| transcript: .+transcript\.md \| video: .+video\.webm \| cards: /.test(String(talk))) fail(`the Talk to agent line is wrong: ${talk}`);
+  actBtn('Talk to agent').click();
+  if (!(await until(() => toastSaid(/CTO/), 5000))) fail('Talk to agent said nothing about the CTO');
+  actBtn('Regenerate tasks').click();
+  if (!(await reached('review', 20000))) fail('Regenerate tasks did not read the recording again');
+  if (st.session.cards.length !== 3 || st.session.cards.some(c => c.status !== 'open') || (st.session.earlier || []).length !== 3) fail(`Regenerate did not replace the cards: ${st.session.cards.map(c => `${c.title} ${c.status}`).join(', ')}; earlier ${(st.session.earlier || []).length}`);
+  console.log(`smoke: recorder Talk to agent: ${talk.slice(0, 60)}..., Regenerate replaced the cards with ${st.session.cards.length} new ones`);
+  for (const c of st.session.cards) await deck.plugin.invoke('recorder', 'drop', c.id);
+  await deck.plugin.invoke('recorder', 'done');
+  for (let t = 0; t < 5000 && (await state()).session; t += 250) await wait(250);
+  if ((await state()).session) fail('a regenerated recording with its cards dropped did not finish');
+  document.querySelector('.plugmodal .closex')?.click();
   const me = String(await peek('Me'));
   if (!/Call the bank[^\n]*\n(\s+>[^\n]*\n)*\s+> Due: 2026-10-17 10:00/.test(me + '\n')) fail(`the reminder is not on Me with its time:\n${me}`);
 

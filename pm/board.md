@@ -54,6 +54,8 @@ Each project's `tasks/<Project>.md` starts with `# <Project> tasks`. One task pe
   checked, or when the CTO tells you a report finished it. That writes its closed date,
   `  > Done: <YYYY-MM-DD HH:MM>`; the added date stays on the task line, so every card shows
   when it was added and closed. Reopening (`deck mark ... open`) removes the `> Done:` line.
+  In the same way `deck mark <Board> <n> needs` writes `  > Waiting: <YYYY-MM-DD HH:MM>`, when
+  the item started waiting on the user, and any other mark removes it.
 - **Answer** "what's next?", "what's stale?" and "what's open for <Project>?" from the
   task files. Read only the files the question needs.
 

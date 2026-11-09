@@ -3,13 +3,15 @@
 // downloads it quietly and tells the page; nothing installs until the user presses Restart to
 // update. FOCUSSHELL_UPDATE_URL points it at a plain folder of builds instead, for a local test.
 import electronUpdater from 'electron-updater';
-import { CHECK_EVERY_MS } from './lib/update.js';
+import { CHECK_EVERY_MS, RELEASES_URL } from './lib/update.js';
 
 const { autoUpdater } = electronUpdater;
 
-// d: { app, ipcMain, send(channel, payload), on: updatesOn(...), smoke, log(line) }
-export function registerUpdater({ app, ipcMain, send, on, smoke, log }) {
-  let state = { version: app.getVersion(), on, checking: false, ready: false, latest: '', error: '' };
+// d: { app, ipcMain, send(channel, payload), on: updatesOn(...), smoke, log(line), manual, openPage(url) }
+// manual (a Mac, #2562): the unsigned app cannot install an update, so it only looks for one,
+// says so, and its button opens the release page.
+export function registerUpdater({ app, ipcMain, send, on, smoke, log, manual = false, openPage = () => {} }) {
+  let state = { version: app.getVersion(), on, checking: false, ready: false, latest: '', error: '', manual };
   const tell = patch => { state = { ...state, ...patch }; send('update:state', state); };
   ipcMain.handle('update:state', () => state);
   if (!on) {
@@ -20,13 +22,13 @@ export function registerUpdater({ app, ipcMain, send, on, smoke, log }) {
     return;
   }
 
-  autoUpdater.autoDownload = true;          // quietly, in the background
+  autoUpdater.autoDownload = !manual;       // quietly, in the background (never on a Mac)
   autoUpdater.autoInstallOnAppQuit = false; // only when the user presses Restart to update
   autoUpdater.logger = { info: m => log(`update: ${m}`), warn: m => log(`update: ${m}`), error: m => log(`update error: ${m}`), debug: () => {} };
   if (process.env.FOCUSSHELL_UPDATE_URL) autoUpdater.setFeedURL({ provider: 'generic', url: process.env.FOCUSSHELL_UPDATE_URL });
 
   autoUpdater.on('checking-for-update', () => tell({ checking: true, error: '' }));
-  autoUpdater.on('update-available', i => tell({ latest: i.version }));
+  autoUpdater.on('update-available', i => tell(manual ? { latest: i.version, checking: false } : { latest: i.version }));
   autoUpdater.on('update-not-available', () => tell({ checking: false }));
   autoUpdater.on('update-downloaded', i => {
     tell({ checking: false, ready: true, latest: i.version });
@@ -39,7 +41,8 @@ export function registerUpdater({ app, ipcMain, send, on, smoke, log }) {
   const check = () => { if (!state.ready) autoUpdater.checkForUpdates().catch(() => { /* reported by the error event */ }); return state; };
   ipcMain.handle('update:check', () => check());
   // Quits like a normal close (sessions end), runs the new installer and starts the new version.
-  ipcMain.handle('update:install', () => { if (!state.ready) return false; setImmediate(() => autoUpdater.quitAndInstall(true, true)); return true; });
+  // On a Mac it opens the release page instead.
+  ipcMain.handle('update:install', () => { if (manual) { if (state.latest) openPage(RELEASES_URL); return false; } if (!state.ready) return false; setImmediate(() => autoUpdater.quitAndInstall(true, true)); return true; });
 
   setTimeout(check, 15000).unref();
   setInterval(check, CHECK_EVERY_MS).unref();

@@ -13,8 +13,8 @@ FocusShell runs several CTOs at once. You are the CTO for the group
   `cto-<Group>` for a project in another group, the main `cto` for a project in no group.
 - The PM (`pm`) is shared by every CTO; work with it as `CLAUDE.md` says.
 - "status?", "pick up the work" and "safe to restart?" cover only the projects in your group.
-- Opening a pane works as in `CLAUDE.md`. The app puts the project beside you in your
+- Opening a pane works as in the `cto-panes` skill. The app puts the project beside you in your
   group's split. Close only the leads of projects in your group.
 - Adding a project to your group is done by the user in the app (Home, Groups), not by you.
 - Everything else, including writing out every open question in full and the task line
-  format, is as `CLAUDE.md` says.
+  format, is as `CLAUDE.md` and its skills say.

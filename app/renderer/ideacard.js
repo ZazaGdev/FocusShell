@@ -4,6 +4,7 @@
 // what is typed here lives in drafts and the focused field gets its focus back (keepFocus).
 import { ideaLine } from '../lib/ideas.js';
 import { voiceInto } from './voice.js';
+import { modKey, MOD_NAME, VOICE_NAME } from '../lib/platform.js';
 
 const drafts = new Map(); // data-keep key -> text typed and not yet saved or sent
 let editing = null;       // the idea whose description is open for editing
@@ -40,9 +41,9 @@ export function ideaDesc(c, i, linked) {
   }
   const done = () => { editing = null; drafts.delete(key); };
   const save = () => { const v = drafts.get(key); done(); if (v != null && v !== text) c.apply(deck.ideaAbout(i.n, v)); else c.rerender(); };
-  const ta = kept(h, 'textarea', key, { class: 'idesc edit', rows: Math.max(3, i.about.length + 1), placeholder: 'Describe the idea; one line per point', title: 'Ctrl+Enter or click away saves, Esc cancels', onkeydown: e => {
+  const ta = kept(h, 'textarea', key, { class: 'idesc edit', rows: Math.max(3, i.about.length + 1), placeholder: 'Describe the idea; one line per point', title: `${MOD_NAME}+Enter or click away saves, Esc cancels`, onkeydown: e => {
     if (e.key === 'Escape') { e.stopPropagation(); done(); c.rerender(); }
-    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); save(); }
+    if (e.key === 'Enter' && modKey(e)) { e.preventDefault(); save(); }
   } }, text);
   // Leaving the box saves it; a redraw that replaced the box is not leaving it.
   ta.addEventListener('blur', () => setTimeout(() => { if (ta.isConnected && editing === i.n) save(); }, 0));
@@ -89,6 +90,6 @@ export function ideaTalk(c, i) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   } }, '');
   return h('div', { class: 'tdtalk' }, box,
-    h('button', { class: 'mic', 'data-tip': 'Talk: Windows voice typing writes into this box, then press Send', onclick: () => { box.focus(); voiceInto(box); } }, icon('mic')),
+    h('button', { class: 'mic', 'data-tip': `Talk: ${VOICE_NAME} writes into this box, then press Send`, onclick: () => { box.focus(); voiceInto(box); } }, icon('mic')),
     h('button', { class: 'btn primary', title: i.sent ? `Sent ${i.sent}; send it again (Enter)` : 'Send to the CTO (Enter)', onclick: send }, 'Send'));
 }

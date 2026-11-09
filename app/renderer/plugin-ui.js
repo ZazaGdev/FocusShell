@@ -2,6 +2,7 @@
 // screens look and behave alike and change in one place. They draw what they are given and
 // call back; none of them reads or writes a file or a board. Classes are Waiting on you's.
 import { voiceInto, voiceDone } from './voice.js';
+import { VOICE_NAME } from '../lib/platform.js';
 
 const QUIET_MS = 1600; // voice typing: this long without a change ends the dictation
 
@@ -97,7 +98,7 @@ export function talkBox(h, icon, deck, o) {
     },
     onkeydown: e => { if (['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) stop(); } });
   box.value = o.value || '';
-  const mic = h('button', { class: 'mic', title: 'Talk: Windows voice typing writes here', 'aria-label': 'Talk', onclick: () => {
+  const mic = h('button', { class: 'mic', title: `Talk: ${VOICE_NAME} writes here`, 'aria-label': 'Talk', onclick: () => {
     box.focus(); box.setSelectionRange(box.value.length, box.value.length);
     wrap.classList.add('listen');
     voiceInto(box); // the bar closes again when the box is left (#415)

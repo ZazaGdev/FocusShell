@@ -27,7 +27,7 @@ test('cleanup: only recordings older than the choice go, never the open one, nev
 });
 
 test('cleanup: a kept screenshot goes in its recording\'s folder under the keep folder', () => {
-  assert.equal(keptPath('D:\\Deck\\screenshots\\', '2026-10-18-0504', 'D:\\Deck\\state\\plugins\\recorder\\2026-10-18-0504\\shots\\0024.png'), 'D:\\Deck\\screenshots\\2026-10-18-0504\\0024.png');
+  assert.equal(keptPath('D:\\Deck\\screenshots\\', '2026-10-18-0504', 'D:\\Deck\\state\\plugins\\recorder\\2026-10-18-0504\\shots\\0024.png', false), 'D:\\Deck\\screenshots\\2026-10-18-0504\\0024.png');
 });
 
 const REC = 'D:\\Deck\\state\\plugins\\recorder\\2026-10-18-0504\\shots';
@@ -42,16 +42,17 @@ const MD = `# FocusShell tasks
 `;
 
 test('cleanup: Screenshot lines under the recording follow it, others stay', () => {
-  const r = relinkShots(MD, REC, KEEP);
+  const r = relinkShots(MD, REC, KEEP, false);
   assert.equal(r.moved.length, 2);
   assert.ok(r.md.includes(`> Screenshot: ${KEEP}\\0009.png`));
   assert.ok(r.md.includes(`> Screenshot: ${KEEP}\\0024.png`));
   assert.ok(r.md.includes('2026-10-18-0503\\shots\\0004.png'));
   assert.ok(r.md.includes('> Transcript:'));
-  assert.deepEqual(relinkShots(r.md, REC, KEEP).moved, []);
+  assert.deepEqual(relinkShots(r.md, REC, KEEP, false).moved, []);
 });
 
-test('cleanup: deck relink moves the lines on every board, and --dry changes nothing', () => {
+// Windows paths through the deck command, which reads this system's; a Mac's are in macpaths.test.js.
+test('cleanup: deck relink moves the lines on every board, and --dry changes nothing', { skip: process.platform !== 'win32' }, () => {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-relink-'));
   fs.mkdirSync(path.join(data, 'tasks'));
   fs.writeFileSync(path.join(data, 'tasks', 'FocusShell.md'), MD);

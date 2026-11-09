@@ -9,8 +9,12 @@ param(
   [string]$Why = '',
   [int]$Task = 0,
   [switch]$Second,
+  [int]$Lead = 0,
   [int]$Wait = 0
 )
+# -Lead 2 to 5 names an extra lead, lead-<Project>-<n> (#1485); -Second is -Lead 2.
+if ($Second -and -not $Lead) { $Lead = 2 }
+if ($Lead -and ($Lead -lt 2 -or $Lead -gt 5)) { Write-Output "Failed: -Lead takes 2 to 5 (a project runs at most five leads)."; exit 1 }
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -26,13 +30,13 @@ $req = Join-Path $root 'state/requests'
 New-Item -ItemType Directory -Force -Path $req | Out-Null
 $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
 $created = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$body = [ordered]@{ project = $Project; task = $Task; words = $Words; why = $Why; second = [bool]$Second; created = $created } | ConvertTo-Json -Compress
+$body = [ordered]@{ project = $Project; task = $Task; words = $Words; why = $Why; n = [Math]::Max($Lead, 1); created = $created } | ConvertTo-Json -Compress
 # Written whole, then renamed, so the app never reads half a request.
 $tmp = Join-Path $req "words-$id.tmp"
 [System.IO.File]::WriteAllText($tmp, $body, (New-Object System.Text.UTF8Encoding $false))
 Move-Item -Force $tmp (Join-Path $req "words-$id.req")
-$lead = if ($Second) { "lead-$Project-2" } else { "lead-$Project" }
-Write-Output "Asked: a card for $lead shows the words; nothing is typed until the owner clicks. Request $id."
+$leadName = if ($Lead) { "lead-$Project-$Lead" } else { "lead-$Project" }
+Write-Output "Asked: a card for $leadName shows the words; nothing is typed until the owner clicks. Request $id."
 
 if ($Wait -gt 0) {
   $out = Join-Path $req "words-$id.out"

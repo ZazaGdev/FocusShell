@@ -5,8 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn, execFileSync } from 'node:child_process';
-import { encodeProjectDir, lastConversation } from './lib/history.js';
+import { spawn } from 'node:child_process';
+import { shellCommand, killTree } from './lib/shell.js';
+import { encodeProjectDir, paneConversation } from './lib/history.js';
 import { sessionName } from './lib/sessions.js';
 import { helperCommand } from './lib/helper.js';
 import { conversation, maybeMissed, LATER_MS } from './lib/missed.js';
@@ -34,15 +35,18 @@ export function registerMissed(d) {
   };
   const save = () => { try { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify(state)); } catch { /* next time */ } };
 
-  // The pane's own conversation: the log in its folder written since it started, named after it.
+  // The pane's own conversation: the log in its folder written since it started, named after it,
+  // or a newer unnamed one when Claude was started again by hand in the pane (#1887). The known
+  // log is kept only while it is the newest, so a restart by hand is noticed.
   const logOf = new Map();
   function logFile(id, s) {
     const dir = path.join(projectsDir, encodeProjectDir(s.cwd));
     const known = logOf.get(id);
     let files = [];
     try { files = fs.readdirSync(dir).filter(n => n.endsWith('.jsonl')).map(n => ({ n, mtime: fs.statSync(path.join(dir, n)).mtimeMs })).filter(f => f.mtime >= s.startedAt - 1000); } catch { return null; }
-    if (known && files.some(f => f.n === known)) return path.join(dir, known);
-    const conv = lastConversation(files.map(f => ({ id: f.n.slice(0, -6), mtime: f.mtime, text: head(path.join(dir, f.n), 256 * 1024) })), sessionName(id, DEMO ? 'demo-' : ''));
+    const newest = files.reduce((a, f) => (!a || f.mtime > a.mtime ? f : a), null);
+    if (known && newest && newest.n === known) return path.join(dir, known);
+    const conv = paneConversation(files.map(f => ({ id: f.n.slice(0, -6), mtime: f.mtime, text: head(path.join(dir, f.n), 256 * 1024) })), sessionName(id, DEMO ? 'demo-' : ''));
     if (!conv) return null;
     logOf.set(id, `${conv}.jsonl`);
     return path.join(dir, `${conv}.jsonl`);
@@ -78,8 +82,9 @@ export function registerMissed(d) {
     return new Promise(res => {
       let out = '';
       const env = { ...cleanEnv(process.env), MAX_THINKING_TOKENS: '0' };
-      const c = spawn('cmd.exe', ['/d', '/s', '/c', cmd], { cwd: work, env, windowsHide: true, windowsVerbatimArguments: true });
-      const timer = setTimeout(() => { try { execFileSync('taskkill', ['/PID', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch { /* gone */ } }, 60000);
+      const sh = shellCommand(cmd);
+      const c = spawn(sh.file, sh.args, { cwd: work, env, ...sh.opts });
+      const timer = setTimeout(() => killTree(c.pid), 60000);
       c.stdout.on('data', b => { out += b; });
       c.on('error', () => { clearTimeout(timer); res(''); });
       c.on('close', () => { clearTimeout(timer); res(out); });

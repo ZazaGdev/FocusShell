@@ -5,7 +5,7 @@ import { parseTasks } from '../lib/tasks.js';
 import { isSomeday } from '../lib/me.js';
 import { MAIN, groupOf } from '../lib/groups.js';
 import * as C from './code.js';
-import { closeWhiteboard } from './whiteboard.js';
+import { closeWhiteboard, wantSummaries } from './whiteboard.js';
 import { ME } from './home.js';
 import * as TD from './task-detail.js';
 import { h, icon } from './dom.js';
@@ -20,8 +20,13 @@ import { finishedCounts } from '../lib/tavern/finished.js';
 import { navForSmoke } from './nav.js';
 import { recorderSmoke } from '../plugins/recorder/smoke.js';
 import { showMissing } from './requirements.js';
+import { MOD_PROP, MAC } from '../lib/platform.js';
+import { OWN_APP_FILES } from '../lib/owntools.js';
+import { shLine } from '../lib/smokeshell.js';
 
-const deck = window.deck;
+// The fake sessions are cmd on Windows and sh on a Mac (#2562): the lines this run types in cmd's
+// words ("cls & echo  ^> 1. Yes") are said in sh's there.
+const deck = MAC ? { ...window.deck, write: (id, d) => window.deck.write(id, shLine(d)) } : window.deck;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 // Waits for the Sketch board, then draws one stroke on it.
 async function drawOnBoard() {
@@ -39,7 +44,7 @@ export async function smoke(app) {
   addEventListener('error', e => deck.smokeFail((e.error && e.error.stack) || e.message));
   addEventListener('unhandledrejection', e => deck.smokeFail((e.reason && e.reason.stack) || e.reason));
   if ((await deck.smokeThrow()) === 'page') setTimeout(() => { throw new Error('forced page error (FOCUSSHELL_SMOKE_THROW=page)'); }, 3000);
-  const { render, openTab, setBoardFocus, openGroup, openMd, wbCounts, openSecond, closeSecond, proj, tasksOf, showTask, collapsed } = app;
+  const { render, openTab, setBoardFocus, openGroup, openMd, wbCounts, openExtra, closeExtra, proj, tasksOf, showTask, collapsed } = app;
   const picks = app.projects.slice(0, 4).map(p => p.name);
   // The PM is off by default (#172); the sidebar and drawer views below show it on, and the
   // no-PM step further down turns it off.
@@ -107,6 +112,30 @@ export async function smoke(app) {
     for (const n of three) C.closeCode(n);
     render(); await wait(500);
   }
+  // A lead's tab dot turns purple only for steady output, as a turn's spinner prints (#2706):
+  // one burst, like the recap Claude Code writes on an idle pane, leaves it hollow.
+  if (!MAC) {
+    const lead = picks[0], dotIs = () => (document.querySelector(`#tabs [data-dot="${lead}"]`)?.className || '').replace('st-dot ', '');
+    await wait(3500);
+    deck.write(lead, 'echo  recap: an idle pane printing once\r'); await wait(1200);
+    const burst = dotIs();
+    deck.write(lead, 'ping -n 7 127.0.0.1\r'); await wait(4500);
+    const steady = dotIs();
+    await wait(6500);
+    const after = dotIs();
+    const ok = !burst.includes('working') && steady.includes('working') && !after.includes('working');
+    console[ok ? 'log' : 'error'](`smoke: tab dot after one burst "${burst}", while printing steadily "${steady}", once quiet "${after}"`);
+    // Its turn over but a background shell still running, as Claude Code's footer under the input
+    // box says: purple until the footer drops it.
+    const rule = '-'.repeat(40), tip = () => document.querySelector(`#tabs [data-dot="${lead}"]`)?.dataset.tip || '';
+    deck.write(lead, `cls & echo  done 3:07 AM - 1 shell still running & echo ${rule} & echo ^> & echo ${rule} & echo   auto mode on - 1 shell - 1 agent\r`); await wait(7500);
+    const shell = dotIs(), shellTip = tip();
+    deck.write(lead, `cls & echo  done 3:07 AM - 1 shell still running & echo ${rule} & echo ^> & echo ${rule} & echo   auto mode on - 1 agent\r`); await wait(7500);
+    const ended = dotIs();
+    const bgOk = shell.includes('working') && /background: 1 shell/.test(shellTip) && !ended.includes('working');
+    console[bgOk ? 'log' : 'error'](`smoke: tab dot with a background shell in the footer "${shell}" (${shellTip}), once it ended "${ended}"`);
+    deck.write(lead, 'cls\r'); await wait(800);
+  }
   // A lead sitting on a permission prompt (#119): marked as waiting, and its CTO is told.
   deck.write(picks[1], 'echo  Bash command: npm run build  Do you want to proceed?  1. Yes  2. No\r'); await wait(5000);
   await deck.smokeShot('waiting');
@@ -123,12 +152,13 @@ export async function smoke(app) {
     console[!seen && late.join() === '0,0' ? 'log' : 'error'](`smoke: a prompt answered within five minutes told the CTO ${seen + late[0] + late[1]} times`);
   }
   // The owner is writing in the CTO's prompt when a WAITING line comes (#243): it is held, and
-  // typed only once the draft is sent and the pane has been quiet for ten seconds.
+  // typed only once the draft is sent and the pane has been quiet for ten seconds. The draft holds
+  // it past those ten seconds even when the app never saw it typed (#1205: dictated words).
   {
     const rule = '-'.repeat(40);
-    deck.write(MAIN, `cls & echo ${rule} & echo ^> half written & echo ${rule}\r`); T.typed(MAIN, 'h'); await wait(1500);
+    deck.write(MAIN, `cls & echo ${rule} & echo ^> half written & echo ${rule}\r`); T.typed(MAIN, '\r'); await wait(1500);
     deck.write(picks[1], 'cls & echo  Do you want to proceed? & echo  ^> 1. Yes & echo    2. No\r'); await wait(5000);
-    const t0 = Date.now(), told = app.checkPromptAlerts(t0 + 6 * 60e3); await wait(3000);
+    const t0 = Date.now(), told = app.checkPromptAlerts(t0 + 6 * 60e3); await wait(6000);
     const rows = await T.screen(MAIN), waitingRow = () => T.screen(MAIN).then(r => r.some(l => /WAITING lead-/.test(l)));
     const held = told === 1 && rows.some(l => l.trim() === '> half written') && !(await waitingRow());
     await deck.smokeShot('cto-draft-held');
@@ -191,6 +221,24 @@ export async function smoke(app) {
     console[bad.length ? 'error' : 'log'](`smoke: the CTO pane kept the keyboard through ${steps.map(s => `${s.what} (${s.kept ? 'kept' : 'lost'}, ${s.outs} focus-out)`).join('; ')}`);
     app.view = 'split'; render(); await wait(800);
   }
+  // A pane's scroll bar (#1389): with history on the normal screen (Classic Claude view) it
+  // shows and scrolls; on the alternate screen of Claude Code's full-screen view it is gone.
+  {
+    const id = app.splitSet[0], host = () => document.querySelector(`.termhost[data-pane="${id}"]`);
+    const bar = () => {
+      const b = host()?.querySelector('.xterm-scrollable-element > .scrollbar.vertical'), s = b?.querySelector('.slider');
+      return !!b && getComputedStyle(b).display !== 'none' && b.offsetHeight > 0 && !!s && s.offsetHeight < b.offsetHeight;
+    };
+    T.write(id, Array.from({ length: 150 }, (_, i) => `history line ${i}`).join('\r\n') + '\r\n'); await wait(400);
+    const classic = bar();
+    T.write(id, '\x1b[?1049h\x1b[2J\x1b[Hfull-screen view'); await wait(400);
+    const full = bar();
+    await deck.smokeShot('pane-altscreen');
+    T.write(id, '\x1b[?1049l'); await wait(400);
+    const back = bar();
+    T.write(id, '\x1b[3J\x1b[2J\x1b[H'); deck.write(id, '\r'); await wait(500); // the later checks read this pane's rows
+    console[classic && !full && back ? 'log' : 'error'](`smoke: pane scroll bar with history ${classic}, on the full-screen view's screen ${full}, back on history ${back}`);
+  }
   app.groups = [{ name: 'Mobile', projects: picks.slice(2, 4) }];
   app.ctx = null; app.view = 'home'; render(); await wait(1200);
   await deck.smokeShot('home');
@@ -217,7 +265,7 @@ export async function smoke(app) {
   // Ctrl+K search (#233): opens from Home, narrows as you type, arrow keys and Enter open the
   // item, Esc closes; inside a pane only Ctrl+Shift+K opens it, Ctrl+K stays with Claude.
   {
-    const key = (target, code, shiftKey = false, k = code) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, ctrlKey: code === 'KeyK', shiftKey, bubbles: true, cancelable: true }));
+    const key = (target, code, shiftKey = false, k = code) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, [MOD_PROP]: code === 'KeyK', shiftKey, bubbles: true, cancelable: true }));
     const items = Object.keys(app.tasksMd).flatMap(p => tasksOf(p).map(t => ({ p, t })));
     const goal = items.filter(({ t }) => t.mark !== 'x' && t.text.split(' ').length >= 3)[1] || items[0];
     key(document.body, 'KeyK'); await wait(200);
@@ -337,8 +385,13 @@ export async function smoke(app) {
       : g.mode === 'walk' || (g.state === 'working' && g.mode !== 'sit') || !!g.prop?.visible || !!g.mug?.visible);
     // The tap barrels show the 5-hour allowance the status line wrote (#279); the fire burns
     // as high as there are busy agents (#280).
-    await tv.scene.refreshUsage();
-    const use = await deck.tavernUsage(), tapsOk = use ? tv.scene.usage?.used === use.used : !tv.scene.usage;
+    // The owner's real sessions keep writing that file, so a reading that changed between the
+    // tavern's and this one is read again (#1888): two tries more, then it counts.
+    let use, tapsOk = false;
+    for (let i = 0; i < 3 && !tapsOk; i++) {
+      await tv.scene.refreshUsage();
+      use = await deck.tavernUsage(); tapsOk = use ? tv.scene.usage?.used === use.used : !tv.scene.usage;
+    }
     const fire = tv.scene.anim.find(a => a.name === 'fire');
     tv.scene.setBusy(6); const fireUp = fire.k > 0.8; await wait(300);
     // The allowance tip under the taps, shown for the shot (#302).
@@ -379,14 +432,14 @@ export async function smoke(app) {
     const smokeNote = notes.find(b => b.textContent.includes(`${ask1} #1`));
     await deck.smokeShot('tavern-notice');
     smokeNote?.click(); await wait(300);
-    const noteCard = !!document.querySelector('.tavbox .tavitem .tdopt') && !!document.querySelector('.tavbox button[title="Back to the notice board"]');
+    const noteCard = !!document.querySelector('.tavbox .tavitem .tdopt') && !!document.querySelector('.tavbox button[data-tip="Back to the notice board"]');
     await deck.smokeShot('tavern-notice-answer');
     document.querySelector('.tavbox .tavx')?.click();
     // The barkeep walks by the keys and by a click on the floor; a guest walks in by the door and
     // another walks out of it (#288).
     const sc = tv.scene, k = sc.keeper;
     // The keys walk him on the open floor; into the bar they stop him at it (#298).
-    const { solidAt } = await import('./tavern/room/demos/room/paths.js');
+    const { solidAt, CELL } = await import('./tavern/room/demos/room/paths.js');
     k.x = 200; k.y = 200; k.target = null; k.route = null;
     sc.keys.DOWN.isDown = true;
     let barIn = false;
@@ -408,15 +461,19 @@ export async function smoke(app) {
     sc.input.emit('pointerdown', { worldX: 640, worldY: 330 }, []);
     let clickWalk = Infinity;
     // Nobody walks through furniture (#298): every walker, sampled, stands clear of it, but for
-    // the edge of the seat or spot it is leaving or reaching.
+    // the edge of the seat or spot it is leaving or reaching. The same rule as the paths (#1755):
+    // a cell whose middle is within 16 of either end is free, and a straight stretch between free
+    // cells may graze a padded corner, so a walker counts only 2px or more inside the solid floor.
+    const inSolid = (r, x, y) => solidAt(sc.grid, x, y) && ![r.from, r.to].some(([ex, ey]) => Math.hypot((Math.floor(x / CELL) + 0.5) * CELL - ex, (Math.floor(y / CELL) + 0.5) * CELL - ey) <= 16);
     let through = 0, walkers = 0;
+    const throughAt = [];
     for (let i = 0; i < 40; i++) {
       await wait(250); clickWalk = Math.min(clickWalk, Math.round(Math.hypot(k.x - 640, k.y - 330)));
       for (const p of sc.people()) {
         const r = p.route;
         if (p.mode !== 'walk' || !r) continue;
         walkers++;
-        if (solidAt(sc.grid, p.x, p.y) && Math.hypot(r.to[0] - p.x, r.to[1] - p.y) > 18 && Math.hypot(r.from[0] - p.x, r.from[1] - p.y) > 18) through++;
+        if ([[0, 0], [-2, -2], [2, -2], [-2, 2], [2, 2]].every(([a, b]) => inSolid(r, p.x + a, p.y + b))) { through++; throughAt.push(`${p.id}@${Math.round(p.x)},${Math.round(p.y)} from ${r.from.map(Math.round)} to ${r.to.map(Math.round)}`); }
       }
     }
     // As the app does it: the smoke's question moves to another running lead, so the first goes
@@ -500,7 +557,7 @@ export async function smoke(app) {
     const ok = !!tv.scene && guests === tv.agents.length && robots && badge === asking.length && asking.length > 0 && atBar === asking.length && boxOk && boardOk && tabsOk && apart && lightBtnOk && asleep && keyWalk > 20 && clickWalk < 3 && walkedOut && walkedIn && noStrangers && noteOk && noteCard && idleClosed && inPlace && cardOk && through === 0 && barStop && acting && tapsOk && fireOk && finishedOk && clockLight && doorOpened && doorShut && faded && !phonedAtFirst && phoned && phoneDown;
     app.hold = null; app.tasksMd = (await deck.readData()).tasks;
     const where = tv.scene ? [...tv.scene.guests.values()].map(g => `${g.id}:${g.name}:${g.where}`).join(' ') : '';
-    const said = `smoke: tavern opened ${!!tv.scene} (${where}), ${guests} guests for ${tv.agents.length} agents, robots animated ${robots}, acting out their state ${acting}, tap barrels ${tv.scene.usage ? `${tv.scene.usage.used}% used` : 'empty'} as the status line ${tapsOk}, fire for ${busyNow} busy ${fireOk}, mugs ${fin.today} today and trophies ${fin.week} this week ${finishedOk}, light by the clock ${tv.scene.light} ${clockLight}, badge ${badge} for ${asking.length} asking, ${atBar} reached the bar, answer box ${boxOk}, guest card ${cardOk}, reopened in place ${inPlace}${inPlace ? '' : ` (walking ${walkingOnReopen.join(' ') || 'none'})`} and idle while closed ${idleClosed}, notice board ${notes.length} notes for pin ${pinned} ${noteOk} with an answer card ${noteCard}, walkers through furniture ${through} of ${walkers} samples, barkeep stopped at the bar by the keys ${barStop}, by keys ${keyWalk}px and to a click ${clickWalk}px off, back from the bar ${walkedOut}, to the bar ${walkedIn}, only running sessions ${noStrangers}, door opened ${doorOpened} and shut ${doorShut}, faded through it ${faded}, phone ${phoned}, token board ${boardOk} with ${boardRows} rows, its tabs ${JSON.stringify(tabRows)} ${tabsOk}, day/night button ${lightA} then ${lightB} ${lightBtnOk}, robots apart ${apart} (${overlaps.guests} guests, ${overlaps.sharedSeats} shared seats, longest overlap ${overlaps.worst}s ${JSON.stringify(overlaps.pairs.slice(0, 3))}), asleep when closed ${asleep}, frames ${tv.game?.loop.frame}, fps ${Math.round(tv.game?.loop.actualFps || 0)}, hidden ${document.visibilityState}`;
+    const said = `smoke: tavern opened ${!!tv.scene} (${where}), ${guests} guests for ${tv.agents.length} agents, robots animated ${robots}, acting out their state ${acting}, tap barrels ${tv.scene.usage ? `${tv.scene.usage.used}% used` : 'empty'} as the status line ${tapsOk}, fire for ${busyNow} busy ${fireOk}, mugs ${fin.today} today and trophies ${fin.week} this week ${finishedOk}, light by the clock ${tv.scene.light} ${clockLight}, badge ${badge} for ${asking.length} asking, ${atBar} reached the bar, answer box ${boxOk}, guest card ${cardOk}, reopened in place ${inPlace}${inPlace ? '' : ` (walking ${walkingOnReopen.join(' ') || 'none'})`} and idle while closed ${idleClosed}, notice board ${notes.length} notes for pin ${pinned} ${noteOk} with an answer card ${noteCard}, walkers through furniture ${through} of ${walkers} samples${through ? ` (${throughAt.slice(0, 3).join('; ')})` : ''}, barkeep stopped at the bar by the keys ${barStop}, by keys ${keyWalk}px and to a click ${clickWalk}px off, back from the bar ${walkedOut}, to the bar ${walkedIn}, only running sessions ${noStrangers}, door opened ${doorOpened} and shut ${doorShut}, faded through it ${faded}, phone ${phoned}, token board ${boardOk} with ${boardRows} rows, its tabs ${JSON.stringify(tabRows)} ${tabsOk}, day/night button ${lightA} then ${lightB} ${lightBtnOk}, robots apart ${apart} (${overlaps.guests} guests, ${overlaps.sharedSeats} shared seats, longest overlap ${overlaps.worst}s ${JSON.stringify(overlaps.pairs.slice(0, 3))}), asleep when closed ${asleep}, frames ${tv.game?.loop.frame}, fps ${Math.round(tv.game?.loop.actualFps || 0)}, hidden ${document.visibilityState}`;
     if (!ok) deck.smokeFail(said); else console.log(said);
   }
   // Self hides to a tab on the right edge and comes back from it (#190). On the Board: the
@@ -552,11 +609,16 @@ export async function smoke(app) {
     const typeIn = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
     const ideaOne = async () => (await deck.readData()).ideas.split('\n- [')[1] || '';
     document.querySelector('.idea .t').click(); await wait(400);
-    document.querySelector('.idea.open .idesc').click(); await wait(400);
-    const ta = document.querySelector('.idea.open textarea.idesc');
+    document.querySelector('.idea.open .idesc').click();
+    // The box takes focus on the next frame, which a hidden window can hold back (#1176).
+    const box = () => document.querySelector('.idea.open textarea.idesc');
+    for (let i = 0; i < 25 && !(box() && document.activeElement === box()); i++) await wait(200);
+    const ta = box();
+    const focused = document.activeElement === ta;
     typeIn(ta, `${ta.value}\nMake each episode under ten minutes.`); ta.blur(); await wait(1500);
-    const desc = [...document.querySelectorAll('.idea.open .idesc p')].map(p => p.textContent), kept = /State: growing/.test(await ideaOne());
+    const desc = [...document.querySelectorAll('.idea.open .idesc p')].map(p => p.textContent), one = await ideaOne(), kept = /State: growing/.test(one);
     const descOk = desc.length === 2 && desc[1] === 'Make each episode under ten minutes.' && kept;
+    const descWhy = `box focused ${focused}, box still open ${!!document.querySelector('.idea.open textarea.idesc')}, in the file ${one.includes('ten minutes')}`;
     const pin = () => document.querySelector('.idea.open .tpin');
     pin().focus(); typeIn(pin(), 'li'); await wait(300);
     const offered = [...document.querySelectorAll('.idea.open .tpitem')].map(b => b.textContent);
@@ -573,7 +635,7 @@ export async function smoke(app) {
     const typed = screen.includes('IDEA #1: Pushing AI to its limits') && screen.includes('You: make it 3d');
     const mark = document.querySelector('.idea.open .f .tag.ok')?.textContent, st = document.querySelector('.idea.open .f .tag.st')?.textContent;
     await deck.smokeShot('me-idea-sent');
-    console[descOk ? 'log' : 'error'](`smoke: idea description edited in one box: ${JSON.stringify(desc)}, keyed lines kept ${kept}`);
+    console[descOk ? 'log' : 'error'](`smoke: idea description edited in one box: ${JSON.stringify(desc)}, keyed lines kept ${kept}${descOk ? '' : ` (${descWhy})`}`);
     console[tagsOk ? 'log' : 'error'](`smoke: idea tag picker offered ${JSON.stringify(offered)} for "li", then "${create}"; tags ${chips.join(', ')}; in Settings ${app.settings.tags.includes('Shorts')}`);
     console[typed && /^sent to CTO \d{4}-\d{2}-\d{2}$/.test(mark || '') && st === 'growing' ? 'log' : 'error'](`smoke: idea sent to the CTO: line typed ${typed}, card shows "${mark}", state ${st}`);
     document.querySelector('.idea.open .t').click(); await wait(300);
@@ -611,6 +673,25 @@ export async function smoke(app) {
     const ok = first === 'Newest one|Middle one|Oldest one' && second === 'Oldest one|Middle one|Newest one';
     console[ok ? 'log' : 'error'](`smoke: Self To do by default ${first}; oldest first ${second}`);
     withMe(); render(); await wait(400);
+  }
+  // Today on Home's Self panel lists newest added first; its own picker switches to oldest
+  // added, priority and back to due date (#1386).
+  {
+    const was = app.view;
+    app.tasksMd = { ...app.tasksMd, [ME]: ['# Me tasks', `- [ ] #1 Oldest one (${day(-5)}, user)`, `  > Due: ${day(-1)} 10:00`,
+      `- [ ] #2 Newest one (${day(0)}, user)`, `  > Due: ${day(-2)} 10:00`, `- [ ] #3 Middle one (${day(-2)}, user)`, `  > Due: ${day(-3)} 10:00`, '  > Priority: 1'].join('\n') };
+    app.ctx = null; app.view = 'home'; render(); await wait(600);
+    const head = () => [...document.querySelectorAll('.pp-me .daygrp')].find(d => d.firstChild.textContent === 'Today');
+    const titles = () => { const out = []; for (let e = head()?.nextElementSibling; e && e.classList.contains('mecard'); e = e.nextElementSibling) out.push(e.querySelector('.tx').firstChild.textContent); return out.join('|'); };
+    const choose = async v => { const s = head().querySelector('.tdsort'); s.value = v; s.dispatchEvent(new Event('change')); await wait(400); return titles(); };
+    const first = titles(), picker = !!head()?.querySelector('.tdsort');
+    await deck.smokeShot('self-today-sort');
+    const oldest = await choose('oldest'), prio = await choose('priority'), due = await choose('due');
+    await choose('newest');
+    const ok = picker && first === 'Newest one|Middle one|Oldest one' && oldest === 'Oldest one|Middle one|Newest one'
+      && prio.startsWith('Middle one|') && due === 'Middle one|Newest one|Oldest one';
+    console[ok ? 'log' : 'error'](`smoke: Self Today by default ${first}; oldest ${oldest}; priority ${prio}; due ${due}`);
+    withMe(); app.view = was; render(); await wait(400);
   }
   // The To do column opens 380px wide; its edge drags it wider, and the width is kept (#203).
   {
@@ -1037,7 +1118,7 @@ export async function smoke(app) {
   }
   // The Code pane, opened the way the owner does: the </> button in the lead pane's header (#97).
   app.pmOpen = false; app.ctx = null; app.view = 'single'; app.single = picks[0]; render(); await wait(300);
-  document.querySelector('.pane:not(.manager) .ph .pa button[title="Open VS Code beside the lead"]').click();
+  document.querySelector('.pane:not(.manager) .ph .pa button[data-tip="Open VS Code beside the lead"]').click();
   for (let i = 0; i < 90 && !document.querySelector('#codelayer .codeview[style*="visible"]'); i++) await wait(1000);
   if (!C.isOpen(picks[0])) console.error('smoke: the pane header </> button did not open the Code pane');
   await wait(4000); await deck.smokeShot('code'); C.closeCode(picks[0]);
@@ -1099,8 +1180,10 @@ export async function smoke(app) {
     } else console.error('smoke: no second file to open in the Code pane');
     C.closeCode(picks[0]); break;
   }
-  // Any file clicked in a lead's pane opens in its built-in Code pane (#126), here a .js file.
-  const js = 'D:\\SideProjects\\FocusShell\\app\\main.js';
+  // Any file clicked in a lead's pane opens in its built-in Code pane (#126), here a .js file:
+  // this app's own main.js, in the project that is this app's folder.
+  const home = (proj('FocusShell') || {}).path || '';
+  const js = `${home}\\app\\main.js`;
   if (await app.openFile(picks[0], js)) {
     for (let i = 0; i < 90 && !document.querySelector('#codelayer .codeview'); i++) await wait(500);
     const src = (document.querySelector('#codelayer .codeview') || {}).src || '';
@@ -1128,17 +1211,32 @@ export async function smoke(app) {
     if (menu) await deck.smokeShot('link-menu');
     dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); p.remove();
   }
+  // The CTO opens a file the owner asked for with deck open-file (#2768): from the CTO's pane,
+  // it opens in the Code pane of the project that holds it, beside that project's lead.
+  {
+    let file = null;
+    for (const x of [`${base}\\README.md`, `${base}\\CLAUDE.md`]) if (!file && await deck.fileAt(x)) file = x;
+    app.view = 'single'; app.single = MAIN; render(); await wait(300);
+    const said = file ? await deck.smokeOpenFile(file) : 'no file';
+    const name = file ? file.split('\\').pop() : '?';
+    let src = '';
+    for (let i = 0; i < 90 && !(src = decodeURIComponent(decodeURIComponent((document.querySelector('#codelayer .codeview') || {}).src || ''))).includes(name); i++) await wait(500);
+    const ok = said.startsWith(`Opened ${file} in the Code pane of ${picks[0]}`) && app.view === 'single' && app.single === picks[0] && C.isOpen(picks[0]) && src.includes(name);
+    console[ok ? 'log' : 'error'](`smoke: deck open-file opened ${name} beside lead-${picks[0]}: ${ok} (answer "${said}", view ${app.view} ${app.single}, src ${src.slice(0, 120)})`);
+    C.closeCode(picks[0]);
+  }
   // A binary file clicked in the CTO's pane is shown in Explorer, not the Code pane, with no
-  // error toast (#166); a path through the G: link to D: still finds its project. A video
-  // editor's project file goes the same way (#317), and a web page (#318).
+  // error toast (#166); a path through a G: link to this app's D: folder still finds its project.
+  // A file of a program of the owner's own goes the same way (#317), and a web page (#318).
   app.view = 'single'; app.single = MAIN; render(); await wait(1000);
-  for (const bin of ['G:\\SideProjects\\FocusShell\\app\\build\\icon.png', 'G:\\SideProjects\\FocusShell\\state\\smoke\\intro-rough-2.editbay', 'G:\\SideProjects\\FocusShell\\tavern\\demos\\room\\index.html']) {
+  const viaLink = home.replace(/^[A-Za-z]:/, 'G:');
+  for (const bin of [`${viaLink}\\app\\build\\icon.png`, `${viaLink}\\state\\smoke\\intro-rough-2.${OWN_APP_FILES[0] || 'psd'}`, `${viaLink}\\tavern\\demos\\room\\index.html`]) {
     const { row } = T.cursorRow(MAIN);
     T.write(MAIN, `\r\n  Built: ${bin}\r\n`); await wait(500);
     const link = (await T.linksOnRow(MAIN, row + 1)).find(l => l.text === bin);
     if (link) { link.activate(); await wait(1500); }
     const errs = [...document.querySelectorAll('#toasts .toast.err')].map(t => t.textContent);
-    const viaG = await deck.projectForFile('G:\\SideProjects\\FocusShell\\CLAUDE.md');
+    const viaG = await deck.projectForFile(`${viaLink}\\CLAUDE.md`);
     const ok = link && !errs.length && !document.querySelector('#codelayer .codeview[style*="visible"]') && viaG === 'FocusShell';
     console[ok ? 'log' : 'error'](`smoke: a clicked ${bin.slice(bin.lastIndexOf('.'))} ${link ? 'link' : 'NO LINK'}, error toasts ${JSON.stringify(errs)}, G: path project ${viaG}`);
   }
@@ -1150,7 +1248,7 @@ export async function smoke(app) {
     await wait(500);
     const ta = T.cursorRow(MAIN).el.querySelector('textarea');
     ta.focus();
-    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', code: 'KeyF', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', code: 'KeyF', [MOD_PROP]: true, shiftKey: true, bubbles: true, cancelable: true }));
     await wait(200);
     const { el } = T.findState(MAIN), input = el.querySelector('input'), count = () => el.querySelector('.fcount').textContent;
     const opened = T.findState(MAIN).open && document.activeElement === input;
@@ -1172,32 +1270,61 @@ export async function smoke(app) {
   await deck.smokeShot('cto');
   // Sample questions for the whiteboard, in memory only.
   const keep = { ...app.tasksMd }, loose = app.projects.map(p => p.name).filter(n => !groupOf(app.groups, n) && n !== ME).slice(0, 2);
+  // #2703: #901 started waiting today, #902 three days ago; #903 was asked before the time was kept.
+  const p2 = x => String(x).padStart(2, '0'), ymd = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const nowD = new Date(), ago3 = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate() - 3);
+  const waitToday = `${ymd(nowD)} ${p2(nowD.getHours())}:${p2(nowD.getMinutes())}`, waitOld = `${ymd(ago3)} 09:10`;
   loose.forEach((n, i) => { app.tasksMd[n] = `${app.tasksMd[n] || '# x'}
 - [?] #901 Pick the export format (2026-10-0${i + 1}, lead-${n}) -> needs you
   > Result: NEEDS YOU #901 | Which format for the export? | options: MP4, WebM, both | suggest: MP4
   > Review: http://100.101.102.103:8731/tmp/export/review.mp4 and http://localhost:8731/tmp/export/review.mp4
+  > Waiting: ${waitToday}
 - [?] #902 Login screen layout (2026-09-2${i}, lead-${n}) -> needs you
   > Result: NEEDS YOU: a) one column, b) two columns with the logo left; suggest a
+  > Waiting: ${waitOld}
 - [?] #903 Build the release APK (2026-10-04, lead-${n}) -> waiting on a prompt
   > Result: NEEDS YOU #903 | lead-${n} is stopped on a prompt in its own pane: Do you want to proceed?. Answer it in that pane.
 - [?] #904 Simpler presets (2026-10-05, lead-${n}) -> pick a flow
-  > NEEDS YOU: which simpler way to create a group? Demo http://127.0.0.1:5391/groups.html (today 5 steps) | options: A Save what is open, B New group card, C both | suggest: C`; });
+  > NEEDS YOU: which simpler way to create a group? Demo http://127.0.0.1:5391/groups.html (today 5 steps) | options: A Save what is open, B New group card, C both | suggest: C
+- [?] #905 Fix the login check (2026-10-06, lead-${n}) -> fixed, check it
+  > Result: DONE #905 | fixed the login check | effort: max | tests: pass | commit: abc1234`; });
+  wantSummaries(deck, app.tasksMd, [ME]); await wait(600);
   wbCounts(); document.querySelector('.wbbtn').click(); await wait(800);
   // A lead's prompt the CTO put on the list (#146) shows as a card with its question.
   const wbText = document.querySelector('.wbox')?.textContent || '';
   console[wbText.includes('is stopped on a prompt in its own pane') ? 'log' : 'error']('smoke: Waiting on you shows the lead stopped on a prompt');
+  // #2703: the time a card started waiting, beside its number; one asked before that keeps its age alone.
+  {
+    const ageOfCard = n => [...document.querySelectorAll('.wbox .wbcard')].find(x => x.querySelector('.wbid')?.textContent === `#${n}`)?.querySelector('.wbage')?.textContent || '';
+    const [a1, a2, a3] = [901, 902, 903].map(ageOfCard);
+    const ok = a1 === `today ${waitToday.slice(11)}` && a2 === '3 days, 09:10' && /^\d+ days$/.test(a3);
+    console[ok ? 'log' : 'error'](`smoke: waiting times on the cards: #901 "${a1}", #902 "${a2}", #903 "${a3}"`);
+  }
   // #416: a question card shows the link it is about, once, as the PC address.
   {
     const c901 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#901/.test(x.querySelector('.wbid')?.textContent || ''));
-    const hrefs = c901 ? [...c901.querySelectorAll('.lchip')].map(a => a.title) : [];
+    const hrefs = c901 ? [...c901.querySelectorAll('.lchip')].map(a => a.dataset.tip) : [];
     console[hrefs.join() === 'http://localhost:8731/tmp/export/review.mp4' ? 'log' : 'error'](`smoke: question card links ${JSON.stringify(hrefs)}`);
-    // #1000: it opens with a TLDR line; the full question is folded until "more".
-    const line = c901?.querySelector('.wbtldr span')?.textContent || '', folded = !!c901?.querySelector('.wbmore')?.hidden;
-    console[/ #901 Pick the export format: Which format for the export\?$/.test(line) && folded ? 'log' : 'error'](`smoke: card TLDR "${line}", details folded ${folded}`);
+    // #1521: design A: the plain summary (canned in a smoke run) on top, option chips with the
+    // suggestion starred, the question itself folded under details; a chip fills the box, sends nothing.
+    const sum = c901?.querySelector('.wcsum')?.textContent || '', chips = c901 ? [...c901.querySelectorAll('.wcopt')].map(b => b.firstChild.textContent) : [];
+    const starred = c901?.querySelector('.wcopt.sug')?.firstChild.textContent || '', folded = !!c901 && !c901.querySelector('.wcdetails')?.open;
+    const inDetails = /Which format for the export\?/.test(c901?.querySelector('.wcdetails')?.textContent || '');
+    c901?.querySelector('.wcopt:not(.sug)')?.click(); await wait(150);
+    const filled = c901?.querySelector('.tdsay')?.value || '', unsent = !!c901?.isConnected && !c901.classList.contains('sent');
+    await deck.smokeShot('waiting-card');
+    const okA = /Smoke summary/.test(sum) && chips.join() === 'MP4,WebM,both' && starred === 'MP4' && folded && inDetails && filled === 'WebM' && unsent;
+    console[okA ? 'log' : 'error'](`smoke: card design A: summary "${sum.slice(0, 40)}", chips ${chips.join()}, starred ${starred}, details folded ${folded} with the question ${inDetails}, a chip filled "${filled}" and sent nothing ${unsent}`);
+    if (c901) c901.querySelector('.tdsay').value = '';
     // #1045: a web link inside the question text is a link.
     const c904 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#904/.test(x.querySelector('.wbid')?.textContent || ''));
-    const inText = c904 ? [...c904.querySelectorAll('.wbq a.tlink')].map(a => a.textContent) : [];
+    const inText = c904 ? [...c904.querySelectorAll('.wchead a.tlink, .wcdetails a.tlink')].map(a => a.textContent) : [];
     console[inText.includes('http://127.0.0.1:5391/groups.html') ? 'log' : 'error'](`smoke: Waiting on you question text links ${JSON.stringify(inText)}`);
+    // #2681: a DONE line's effort part shows as a badge beside tests, not inside the result.
+    const c905 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#905/.test(x.querySelector('.wbid')?.textContent || ''));
+    const badges = c905 ? [...c905.querySelectorAll('.wcbadge')].map(b => b.textContent) : [];
+    const leaked = /effort: max/.test(c905?.querySelector('.wcdetails')?.textContent || '');
+    console[badges.includes('effort max') && badges.includes('tests pass') && !leaked ? 'log' : 'error'](`smoke: report card badges ${JSON.stringify(badges)}, effort left in the details ${leaked}`);
   }
   // #414: dictating into a card, then a pause, sends nothing; the words wait in the box for Send.
   {
@@ -1225,7 +1352,64 @@ export async function smoke(app) {
     const stopped = document.querySelectorAll('.wbox .wbcard.listen').length;
     console[after1 === 1 && afterHold === 1 && stopped === 0 ? 'log' : 'error'](`smoke: talk key held over Waiting on you: listening cards after the press ${after1}, after 5 repeats ${afterHold}, after the mic ${stopped}`);
   }
-  await deck.smokeShot('whiteboard'); closeWhiteboard(); app.tasksMd = keep; wbCounts();
+  await deck.smokeShot('whiteboard'); closeWhiteboard();
+  // #1168: the x on a card removes it from Waiting only, with Undo for a few seconds; it stays
+  // gone after the modal is reopened, and a new question on that task brings it back.
+  {
+    const ids = () => [...document.querySelectorAll('.wbox .wbcard .wbid')].map(x => x.textContent);
+    const count = () => +document.querySelector('.wbbtn b').textContent;
+    const c0 = count(); document.querySelector('.wbbtn').click(); await wait(500);
+    const n0 = ids().filter(x => x === '#902').length;
+    [...document.querySelectorAll('.wbox .wbcard')].find(x => x.querySelector('.wbid')?.textContent === '#902')?.querySelector('.wbdrop')?.click(); await wait(200);
+    const n1 = ids().filter(x => x === '#902').length, undoBar = !!document.querySelector('.wbox .wbundo'), c1 = count();
+    document.querySelector('.wbox .wbundo .btn')?.click(); await wait(200);
+    const n2 = ids().filter(x => x === '#902').length;
+    [...document.querySelectorAll('.wbox .wbcard')].filter(x => x.querySelector('.wbid')?.textContent === '#902').forEach(x => x.querySelector('.wbdrop').click()); await wait(200);
+    await deck.smokeShot('whiteboard-removed');
+    closeWhiteboard(); document.querySelector('.wbbtn').click(); await wait(500);
+    const n3 = ids().filter(x => x === '#902').length, gone = !document.querySelector('.wbox .wbundo');
+    closeWhiteboard();
+    for (const n of loose) app.tasksMd[n] = app.tasksMd[n].replace('Login screen layout', 'Login screen layout, again').replace('NEEDS YOU: a) one column', 'NEEDS YOU: a) one column with a header');
+    wbCounts(); document.querySelector('.wbbtn').click(); await wait(500);
+    const n4 = ids().filter(x => x === '#902').length;
+    closeWhiteboard();
+    const ok = n0 === loose.length && n1 === n0 - 1 && undoBar && c1 === c0 - 1 && n2 === n0 && n3 === 0 && gone && n4 === n0;
+    console[ok ? 'log' : 'error'](`smoke: remove from Waiting: #902 cards ${n0}, after x ${n1} (count ${c0} -> ${c1}, undo bar ${undoBar}), after Undo ${n2}, reopened after removing all ${n3}, a new question brings back ${n4}`);
+  }
+  // #1731: an image pasted into the Answer box shows as a thumbnail; Send saves it as a .png and
+  // the ANSWER line carries its full path. Last here, as a sent answer reloads the boards.
+  {
+    wbCounts(); document.querySelector('.wbbtn').click(); await wait(800);
+    const c904 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#904/.test(x.querySelector('.wbid')?.textContent || ''));
+    const c = document.createElement('canvas'); c.width = 40; c.height = 30;
+    const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 40, 30);
+    const png = await new Promise(r => c.toBlob(r, 'image/png'));
+    const dt = new DataTransfer(); dt.items.add(new File([png], 'shot.png', { type: 'image/png' }));
+    const box = c904?.querySelector('.tdsay');
+    box?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); await wait(150);
+    const thumbs = c904 ? c904.querySelectorAll('.ashot img').length : 0;
+    if (box) box.value = 'like this';
+    await deck.smokeShot('waiting-paste');
+    const ids = () => [...document.querySelectorAll('.wbox .wbcard .wbid')].map(x => x.textContent).filter(x => x === '#904').length;
+    const before = ids(), count0 = +document.querySelector('.wbbtn b').textContent;
+    [...(c904 ? c904.querySelectorAll('.tdtalk .btn.primary') : [])].pop()?.click();
+    // #2610: the answered card leaves Waiting at once, not left on it faded, and stays off when
+    // Waiting opens again, though its item is still marked as waiting on the owner. Read before
+    // the boards reload from disk, which drops these in-memory sample cards.
+    for (let i = 0; i < 100 && c904?.isConnected; i++) await wait(20);
+    const left = ids(), count1 = +document.querySelector('.wbbtn b').textContent;
+    closeWhiteboard(); document.querySelector('.wbbtn').click();
+    const reopened = ids(), faded = document.querySelectorAll('.wbox .wbcard.sent').length;
+    await wait(3500);
+    console[before >= 1 && left === before - 1 && count1 === count0 - 1 && reopened === left && !faded ? 'log' : 'error'](`smoke: an answered card leaves Waiting: #904 cards ${before} -> ${left} (count ${count0} -> ${count1}), after reopening ${reopened}, faded cards ${faded}`);
+    // The ANSWER line as typed into the CTO pane, its wrapped rows joined (spaces dropped, as a
+    // wrap can fall on one).
+    const typed = (await T.screen(MAIN)).join('').replace(/\s+/g, '');
+    const m = typed.match(/ANSWER\w+#904:likethisImage:[A-Z]:\\\S*?\\screenshots\\answers\\[\w-]+\.png/);
+    console[thumbs === 1 && m ? 'log' : 'error'](`smoke: a pasted image showed ${thumbs} thumbnail(s) and went to the CTO as "${m ? m[0] : typed.slice(-160)}"`);
+    closeWhiteboard();
+  }
+  app.tasksMd = keep; wbCounts();
   // Maybe missed (#367): a CTO reply with three numbered questions, answered about the first
   // within seconds and then a new topic, gives two cards with their reasons. Seen clears one,
   // an answer later in chat clears the other, and an item on Waiting on you never shows.
@@ -1422,16 +1606,40 @@ export async function smoke(app) {
     // a click at once sends nothing and says so, and the card then shows the new command.
     deck.write(who, 'cls & echo  Bash command & echo    npm run build & echo  Do you want to proceed? & echo  ^> 1. Yes & echo    2. No, and tell Claude what to do differently (esc)\r');
     app.view = 'home'; render();
-    for (let i = 0; i < 30 && !document.querySelector(`${sel} .popts button`); i++) await wait(500);
+    let cardIn = 0;
+    for (; cardIn < 30 && !document.querySelector(`${sel} .popts button`); cardIn++) await wait(500);
+    // What the page had when it failed once in nine runs (#1888): the cards, the view and the lead's screen.
+    const seenThen = { cardAfter: cardIn < 30 ? `${cardIn / 2}s` : 'none in 15s', view: app.view, cards: [...document.querySelectorAll('.pcard')].map(c => c.dataset.session),
+      screen: (await T.screen(who)).filter(r => r.trim()).slice(-7) };
     deck.write(who, 'cls & echo  Bash command & echo    git push --force & echo  Do you want to proceed? & echo  ^> 1. Yes & echo    2. No, and tell Claude what to do differently (esc)\r');
-    await wait(400);
+    // The click comes once the pane shows the new prompt, while the card still shows the old one:
+    // clicked before the pane drew it, the card rightly matched the screen and answered (#1888).
+    const waitFrom = Date.now();
+    let paneShowed = false;
+    for (let i = 0; i < 25 && !(paneShowed = (await T.screen(who)).some(r => /git push --force/.test(r) && !/echo/.test(r))); i++) await wait(100);
     const shown = document.querySelector(`${sel} .pdetail`)?.textContent || '';
+    const atClick = { waitedMs: Date.now() - waitFrom, paneShowed, card: !!document.querySelector(`${sel} .popts button`), shown: shown.replace(/\s+/g, ' ').trim().slice(0, 60) };
     document.querySelector(`${sel} .popts button`)?.click(); await wait(800);
     const refusedClick = /npm run build/.test(shown) && !!document.querySelector(`${sel} .pchanged`);
     for (let i = 0; i < 20 && !/git push --force/.test(document.querySelector(`${sel} .pdetail`)?.textContent || ''); i++) await wait(500);
     const redrawn = /git push --force/.test(document.querySelector(`${sel} .pdetail`)?.textContent || '');
-    if (!refusedClick || !redrawn) deck.smokeFail(`prompt card: a changed prompt with the same wording, click refused ${refusedClick}, card redrawn ${redrawn}`);
-    console.log(`smoke: a changed prompt with the same wording refused the click ${refusedClick} and redrew the card ${redrawn}`);
+    if (!refusedClick || !redrawn) deck.smokeFail(`prompt card: a changed prompt with the same wording, click refused ${refusedClick}, card redrawn ${redrawn}; before the second prompt ${JSON.stringify(seenThen)}; at the click ${JSON.stringify(atClick)}; now cards ${JSON.stringify([...document.querySelectorAll('.pcard')].map(c => c.dataset.session))}, screen ${JSON.stringify((await T.screen(who)).filter(r => r.trim()).slice(-7))}`);
+    console.log(`smoke: a changed prompt with the same wording refused the click ${refusedClick} and redrew the card ${redrawn} (card after ${seenThen.cardAfter}, at the click ${JSON.stringify(atClick)})`);
+    // #1278: the card's X takes it off Waiting with Undo and types nothing; the lead's next
+    // prompt shows again.
+    const before = (await T.screen(who)).join('\n');
+    document.querySelector(`${sel} .wbdrop`)?.click(); await wait(400);
+    const gone = !document.querySelector(sel);
+    [...document.querySelectorAll('#toasts .toastbtn')].find(b => b.textContent === 'Undo')?.click(); await wait(400);
+    const back = !!document.querySelector(sel);
+    document.querySelector(`${sel} .wbdrop`)?.click(); await wait(6000);
+    const stays = !document.querySelector(sel), untouched = (await T.screen(who)).join('\n') === before;
+    deck.write(who, 'cls & echo  Bash command & echo    npm test & echo  Do you want to proceed? & echo  ^> 1. Yes & echo    2. No, and tell Claude what to do differently (esc)\r');
+    for (let i = 0; i < 30 && !/npm test/.test(document.querySelector(`${sel} .pdetail`)?.textContent || ''); i++) await wait(500);
+    const next = /npm test/.test(document.querySelector(`${sel} .pdetail`)?.textContent || '');
+    const xok = gone && back && stays && untouched && next;
+    const xsaid = `prompt card X: removed ${gone}, Undo brought it back ${back}, stays removed ${stays}, typed nothing ${untouched}, next prompt shows ${next}`;
+    if (!xok) deck.smokeFail(xsaid); else console.log(`smoke: ${xsaid}`);
     deck.write(who, 'cls\r'); await wait(1500);
     // An answered prompt whose text is still on screen above Claude Code's input line raises
     // no card (#191).
@@ -1449,21 +1657,28 @@ export async function smoke(app) {
     const card = id => document.querySelector(`.pcard[data-words="${id}"]`);
     deck.write(who, 'cls\r'); await wait(800);
     await req('smoke-no', 'echo should-not-appear');
-    await req('smoke-yes', String.raw`echo typed-on-click D:\new\back\test`);
+    await req('smoke-x', 'echo x-should-not-appear');
+    // This one comes the CTO's way, through deck ask-owner (#2562), which names its own id.
+    // A path whose backslashes must reach the pane as they are; a Mac's sh reads \n in echo, so
+    // there it is a Mac path (#2562).
+    const typedPath = MAC ? '/new/back/test' : String.raw`D:\new\back\test`;
+    const yes = await deck.smokeAsk(who, `echo typed-on-click ${typedPath}`, 'Edit a file outside its folder?', 7);
     const refused = await req('smoke-bad', 'echo one\necho two');
+    await wait(600); // the request is taken when the watcher sees it
     app.view = 'home'; render(); await wait(600);
-    const shown = !!card('smoke-yes') && !!card('smoke-no') && !card('smoke-bad');
-    const exact = card('smoke-yes')?.querySelector('.pwordsbox')?.textContent === String.raw`echo typed-on-click D:\new\back\test`;
+    const shown = !!yes && !!card(yes) && !!card('smoke-no') && !card('smoke-bad');
+    const exact = card(yes)?.querySelector('.pwordsbox')?.textContent === `echo typed-on-click ${typedPath}`;
     await deck.smokeShot('home-words');
-    [...card('smoke-no').querySelectorAll('button')].find(b => b.textContent === 'Decline').click(); await wait(1500);
+    [...card('smoke-no').querySelectorAll('button')].find(b => b.textContent === 'Decline').click();
+    card('smoke-x').querySelector('.wbdrop').click(); await wait(1500); // the X counts as Decline (#1278)
     const quiet = !(await T.screen(who)).some(r => r.includes('should-not-appear'));
-    card('smoke-yes').querySelector('.btn.primary').click(); await wait(2500);
-    const typed = (await T.screen(who)).some(r => r.trim() === String.raw`typed-on-click D:\new\back\test`);
+    card(yes).querySelector('.btn.primary').click(); await wait(2500);
+    const typed = (await T.screen(who)).some(r => r.trim() === `typed-on-click ${typedPath}`);
     await req('smoke-closed', 'echo nowhere', { project: 'NoSuchOpenProject' });
     render(); await wait(400);
     card('smoke-closed')?.querySelector('.btn.primary').click(); await wait(800);
-    const outs = await Promise.all(['smoke-no', 'smoke-yes', 'smoke-closed'].map(deck.smokeWordsOut));
-    const ok = shown && exact && quiet && typed && /^refused: .*line break/.test(refused || '') && outs.join('|') === 'declined|typed|no lead-NoSuchOpenProject pane is open' && !document.querySelector('.pcard.words');
+    const outs = await Promise.all(['smoke-no', 'smoke-x', yes, 'smoke-closed'].map(deck.smokeWordsOut));
+    const ok = shown && exact && quiet && typed && /^refused: .*line break/.test(refused || '') && outs.join('|') === 'declined|declined|typed|no lead-NoSuchOpenProject pane is open' && !document.querySelector('.pcard.words');
     const said = `smoke: words cards shown ${shown}, exact ${exact}, decline typed nothing ${quiet}, click typed ${typed}, bad one ${refused}, answers ${outs.join(' | ')}`;
     // Nothing must ever be typed without the click, so a miss here fails the whole run.
     if (!ok) deck.smokeFail(said); else console.log(said);
@@ -1505,34 +1720,66 @@ export async function smoke(app) {
     console[whole ? 'log' : 'error'](`smoke: a path broken at its space links whole from both rows: ${whole ? 'yes' : `no, rows give ${JSON.stringify([opens(l1), opens(l2)])}`}`);
     await wait(500);
     await deck.smokeShot('wrapped-link-space');
+    // #2243: a sentence ends "8236/." near the right edge and Claude Code's next row starts "It";
+    // the link opens the URL alone.
+    {
+      const tail = ' http://127.0.0.1:8236/.', lead = '  The pop-up options page is live on this PC:';
+      const line = (lead + ' x'.repeat(Math.max(0, Math.floor((cols - 3 - lead.length - tail.length) / 2)))) + tail;
+      T.write(picks[0], `\x1b[2J\x1b[H\r\n${line}\r\n  It shows today and the three options side by side.\r\n`);
+      await wait(500);
+      const got = (await T.linksOnRow(picks[0], 1)).map(l => l.target || l.text), next = await T.linksOnRow(picks[0], 2);
+      const ok = got.length === 1 && got[0] === 'http://127.0.0.1:8236/' && !next.length;
+      console[ok ? 'log' : 'error'](`smoke: a URL before a sentence on the next row opens alone: ${ok ? 'yes' : `no, ${JSON.stringify(got)} / ${JSON.stringify(next.map(l => l.text))}`} (row ${line.length} of ${cols})`);
+    }
+    // #1886: Claude Code redraws a path's rows in place as a numbered list line while it works;
+    // no link colour stays on the list line, during the redraws, once quiet or after a scroll.
+    {
+      const el = T.cursorRow(picks[0]).el, falsePaint = () => [...el.querySelectorAll('.xterm-rows > div')].flatMap((r, i) => {
+        const blue = [...r.querySelectorAll('span')].filter(s => /127, 178, 255/.test(getComputedStyle(s).color)).map(s => s.textContent).join('');
+        return blue && !/[A-Za-z]:[\\/]/.test(blue) && !dir.includes(blue.trim()) ? [`row ${i} [${blue}]`] : [];
+      });
+      T.write(picks[0], `\x1b[2J\x1b[H\r\n  ⎿  Updated\r\n     ${dir} (+2\r\n     -0)\r\n  ✶ Working… 0s\r\n`);
+      await wait(1500);
+      const lit = T.paintedRows(picks[0]).length > 0, seen = new Set();
+      for (let k = 0; k < 20; k++) {
+        T.write(picks[0], '\x1b[4A\r' + ['  ⎿  Updated', '       3640  - [~] #1877 Capture footage for the "Same room', '             coders" Short (2026-10-27, lead-PixelFarm', `  ✶ Working… ${k}s`].map(s => '\x1b[2K' + s).join('\r\n') + '\r\n');
+        await wait(100);
+        for (const f of falsePaint()) seen.add(f);
+      }
+      await wait(1200);
+      const quiet = falsePaint();
+      el.querySelector('.xterm-screen')?.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true, cancelable: true }));
+      await wait(1200);
+      const scrolled = falsePaint(), ok = lit && !seen.size && !quiet.length && !scrolled.length;
+      console[ok ? 'log' : 'error'](`smoke: a path redrawn as a list line keeps no link colour (#1886): path lit ${lit}, during redraws ${JSON.stringify([...seen])}, once quiet ${JSON.stringify(quiet)}, after a scroll ${JSON.stringify(scrolled)}`);
+    }
     // Clipboard history (#352): a Win+V pick arrives as an "insert from paste" input, which now
     // reaches the session; Ctrl+V with only an image on the clipboard sends Claude Code's
-    // image paste (Alt+V, ESC v). The owner's clipboard text is put back afterwards.
+    // image paste (Alt+V, ESC v). All of it on the run's own clipboard, never the owner's (#1902).
     {
-      const before = await navigator.clipboard.readText().catch(() => '');
       const area = T.cursorRow(picks[0]).el?.querySelector('textarea');
       T.write(picks[0], '\x1b[2J\x1b[H');
-      await navigator.clipboard.writeText('from-clipboard-history');
+      await deck.smokeClip({ text: 'from-clipboard-history' });
       area?.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertFromPaste', bubbles: true, cancelable: true }));
       await wait(1200);
       const textIn = (await T.screen(picks[0])).join('').includes('from-clipboard-history');
       // A real Ctrl+V of text goes in once: the paste event's own input must not paste it again.
       deck.write(picks[0], '\x1b'); await wait(300);
       T.write(picks[0], '\x1b[2J\x1b[H');
-      await navigator.clipboard.writeText('ctrl-v-text'); await wait(500);
+      // The browser's own paste reads the real clipboard, so a second paste would add the owner's
+      // text after it rather than "ctrl-v-text" again: the line must end with the one paste.
+      await deck.smokeClip({ text: 'ctrl-v-text' });
       T.focus(picks[0]); await deck.smokeCtrlV(); await wait(1200);
-      const ctrlV = ((await T.screen(picks[0])).join('').match(/ctrl-v-text/g) || []).length;
-      console[ctrlV === 1 ? 'log' : 'error'](`smoke: Ctrl+V of text pastes it ${ctrlV} time(s)`);
+      const vrows = await T.screen(picks[0]), ctrlV = (vrows.join('').match(/ctrl-v-text/g) || []).length, vline = vrows.find(r => r.includes('ctrl-v-text')) || '';
+      const once = ctrlV === 1 && /ctrl-v-text\s*$/.test(vline);
+      console[once ? 'log' : 'error'](`smoke: Ctrl+V of text pastes it ${ctrlV} time(s), nothing after it ${/ctrl-v-text\s*$/.test(vline)}`);
       deck.write(picks[0], '\x1b'); await wait(300);
-      const png = await (await fetch('logo.png')).blob();
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      const png = new Uint8Array(await (await fetch('logo.png')).arrayBuffer());
+      await deck.smokeClip({ png });
       const kd = new KeyboardEvent('keydown', { key: 'v', code: 'KeyV', keyCode: 86, ctrlKey: true, bubbles: true, cancelable: true });
-      // The page's own write reaches the clipboard the main process reads a moment later.
-      await wait(500);
       const kind = window.deck.clipboardKind().kind;
       area?.dispatchEvent(kd); await wait(600);
       const after = (await T.screen(picks[0])).filter(r => r.trim()).slice(-2).join(' | ');
-      await navigator.clipboard.writeText(before).catch(() => {});
       console[textIn && kind === 'image' ? 'log' : 'error'](`smoke: a clipboard-history paste reaches the pane ${textIn}; an image on the clipboard reads as "${kind}", Ctrl+V then leaves "${after}"`);
     }
   }
@@ -1542,10 +1789,44 @@ export async function smoke(app) {
   await drawOnBoard(); await deck.smokeShot('sketch');
   document.querySelector('.sk-foot .btn.primary').click(); await wait(1500);
   if (document.querySelector('.sk-host')) { console.error('smoke: Sketch insert did not close the board'); document.querySelector('.sk-x').click(); }
+  // The sketch went on the run's own clipboard, not the owner's (#1902).
+  { const c = await deck.smokeClip(); console[c.image ? 'log' : 'error'](`smoke: Sketch insert put its picture on the run's own clipboard ${c.image}`); }
   await deck.smokeShot('sketch-inserted');
-  await openSecond(picks[0], false); await wait(1200);
-  await deck.smokeShot('second');
-  await closeSecond(picks[0]);
+  // Up to five leads on one project (#1485): leads 2 to 5 show as tabs 1 to 5 in its pane
+  // header, and the "+" button is gone once all five run.
+  {
+    app.view = 'single'; app.single = picks[0]; render();
+    for (const n of [2, 3, 4, 5]) { await openExtra(picks[0], n, false); await wait(400); }
+    await wait(800);
+    const tabs = [...document.querySelectorAll('.pane .ph .leads button')].map(b => b.textContent.trim());
+    const plus = !!document.querySelector('.pane .ph .two');
+    await deck.smokeShot('leads-5');
+    // #1554: Ctrl+click on 2, 3 and 4 shows four terminals side by side in the pane; with another
+    // project in a split it shows one; alone again, the four come back. Lead 4 closing drops it.
+    const num = n => [...document.querySelectorAll('.pane .ph .leads button')].find(b => b.textContent.trim() === String(n));
+    const cells = () => document.querySelectorAll('.pane .body.leadsplit .leadcell').length;
+    for (const n of [2, 3, 4]) { num(n).dispatchEvent(new MouseEvent('click', { ctrlKey: true, bubbles: true })); await wait(300); }
+    await wait(500);
+    const four = cells(), terms = document.querySelectorAll('.pane .body.leadsplit .leadcell .xterm').length;
+    await deck.smokeShot('lead-split');
+    const other = picks.find(n => n !== picks[0]);
+    app.view = 'split'; app.splitSet = [picks[0], other]; app.layoutId = 'm-2r'; render(); await wait(500);
+    const shared = cells();
+    app.view = 'single'; app.single = picks[0]; render(); await wait(500);
+    const back = cells();
+    num(3).dispatchEvent(new MouseEvent('click', { ctrlKey: true, bubbles: true })); await wait(300);
+    const three = cells();
+    await closeExtra(picks[0], 4); await wait(300);
+    const afterClose = cells();
+    num(1).click(); await wait(300);
+    const plain = cells();
+    const splitOk = four === 4 && terms === 4 && shared === 0 && back === 4 && three === 3 && afterClose === 2 && plain === 0;
+    console[splitOk ? 'log' : 'error'](`smoke: lead split: Ctrl+click 2,3,4 gave ${four} cells (${terms} terminals), beside ${other} ${shared}, alone again ${back}, 3 out ${three}, lead 4 closed ${afterClose}, plain click ${plain}`);
+    for (const n of [5, 3, 2]) await closeExtra(picks[0], n);
+    const left = [2, 3, 4, 5].filter(n => app.started.has(`${picks[0]}:${n}`)).length;
+    const ok = tabs.join() === '1,2,3,4,5' && !plus && left === 0;
+    console[ok ? 'log' : 'error'](`smoke: five leads on ${picks[0]}: header tabs ${tabs.join()}, "+" button ${plus ? 'still there' : 'gone'}, ${left} left after closing`);
+  }
   const target = ['Streaky', 'Papers'].find(n => proj(n)) || picks[0];
   // Reach the project page the way the owner does: the project name in its pane header.
   app.view = 'single'; app.single = target; render(); await wait(800);
@@ -1554,11 +1835,10 @@ export async function smoke(app) {
   const withDetails = tasksOf(target).find(t => t.details.length) || tasksOf(target)[0];
   if (withDetails) { showTask(target, withDetails); await wait(1500); await deck.smokeShot('task');
     // Copy puts "<Project> #<n>: <title>" on the clipboard (#107); the owner's clipboard is put back.
-    const before = await navigator.clipboard.readText().catch(() => '');
+    // Into the run's own clipboard, never the owner's (#1902).
     document.querySelector('.tdcopy').click(); await wait(300);
-    const got = await navigator.clipboard.readText().catch(e => `(${e.message})`), want = `${target} #${withDetails.n}: ${withDetails.text}`;
+    const got = (await deck.smokeClip()).text, want = `${target} #${withDetails.n}: ${withDetails.text}`;
     console[got === want ? 'log' : 'error'](got === want ? `smoke: Copy gave "${got}"` : `smoke: Copy gave "${got}", wanted "${want}"`);
-    await navigator.clipboard.writeText(before).catch(() => {});
   }
   // A card that needs the owner, shaped like a real lead report with lettered options.
   showTask(target, { mark: '?', n: 999, text: 'Tooltip on the section title, none on empty measurements', date: '2026-10-03', who: `lead-${target}`, forOwner: false, result: 'needs you on the tooltip',
@@ -1615,6 +1895,31 @@ export async function smoke(app) {
     const p = app.projects.find(x => !app.openTabs.includes(x.name) && x.kind !== 'personal');
     const answer = p ? await deck.smokeRequest(p.name) : '(no closed project to open)';
     console[/^Started lead-/.test(answer) ? 'log' : 'error'](`smoke: open request while busy for ${p && p.name} answered "${answer}"`);
+    // ... and deck close-pane closes it again, answered in close-<Project>.out (#2562).
+    const closed = p ? await deck.smokeClose(p.name) : '(nothing opened)';
+    await wait(500);
+    const gone = !!p && !app.openTabs.includes(p.name);
+    console[/^Closed/.test(closed) && gone ? 'log' : 'error'](`smoke: close request for ${p && p.name} answered "${closed}", tab gone ${gone}`);
+  }
+  // The CTO opens a lead while the owner looks at another project with text typed in its pane
+  // (#1387): the tab is added and the lead starts, but the view, the pane with the keyboard and
+  // the typed text stay. A second lead on the pane on screen leaves it showing the first.
+  {
+    const here = app.openTabs.find(n => n !== MAIN && !/:/.test(n) && (app.proj(n) || {}).kind !== 'personal');
+    const p = app.projects.find(x => !app.openTabs.includes(x.name) && x.kind !== 'personal');
+    app.view = 'single'; app.single = here; render(); await wait(800);
+    T.focus(here); deck.write(here, 'typed-1387'); await wait(800);
+    const answer = p ? await deck.smokeRequest(p.name) : '(no closed project to open)';
+    await wait(500); // the answer comes seconds after the open, so the batch has run
+    const kept = () => app.view === 'single' && app.single === here && T.focusedId() === here;
+    const typed = async () => (await T.screen(here)).some(r => r.includes('typed-1387'));
+    const first = { tab: !!p && app.openTabs.includes(p.name), started: /^Started lead-/.test(answer), kept: kept(), typed: await typed() };
+    await app.openExtraRequest({ name: here, n: 3 }); await wait(1500);
+    const second = { started: app.started.has(`${here}:3`), kept: kept(), shows: !app.showLead.has(here), typed: await typed() };
+    await deck.smokeShot('open-background');
+    deck.write(here, '\x1b'); await app.closeExtra(here, 3); await wait(500);
+    const ok = Object.values(first).every(Boolean) && Object.values(second).every(Boolean);
+    console[ok ? 'log' : 'error'](`smoke: CTO opened ${p && p.name} in the background while on ${here}: ${JSON.stringify(first)}; second lead ${JSON.stringify(second)}`);
   }
   // A pane the CTO closes and reopens at once (#197): the closed session ends after the new
   // one started, and the new pane must stay live.
@@ -1738,6 +2043,33 @@ export async function smoke(app) {
     await deck.smokeShot('plugins');
     app.saveSettings({ ...app.settings, plugins: {} });
     app.view = 'home'; render();
+  }
+  // The one tooltip (#1035): no browser title left on the page (Sketch's own aside), and hovering
+  // a button shows the app's label inside the window.
+  {
+    const until = async (ok, ms = 3000) => { for (let t = 0; t < ms && !ok(); t += 100) await wait(100); return ok(); };
+    app.view = 'home'; render(); await wait(400);
+    const plain = [...document.querySelectorAll('[title]')].filter(e => !e.closest('.excalidraw')).map(e => e.outerHTML.slice(0, 80));
+    if (plain.length) deck.smokeFail(`tooltip: plain title left on ${plain.length}: ${plain.slice(0, 3).join(' | ')}`);
+    const target = document.querySelector('#btnSettings');
+    target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const tipOk = await until(() => document.querySelector('.qtip.on'));
+    const tip = document.querySelector('.qtip'), r = tip && tip.getBoundingClientRect();
+    const said = `tooltip: hover shows "${tip ? tip.textContent : ''}" at ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}` : 'nowhere'}`;
+    if (!tipOk || !r || r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight) deck.smokeFail(said); else console.log(`smoke: ${said}`);
+    await deck.smokeShot('tooltip');
+    // A project tab's tip waits a second, even straight after another tip (#2329).
+    const tab = document.querySelector('#tabs .tab[data-tip^="Click to open"]');
+    if (!tab) deck.smokeFail('tooltip: no project tab to hover');
+    else {
+      tab.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await wait(500);
+      const early = !!document.querySelector('.qtip');
+      const late = await until(() => document.querySelector('.qtip.on'), 1500);
+      if (early || !late) deck.smokeFail(`tooltip: tab tip ${early ? 'showed before 500ms' : 'never showed'}`);
+      else console.log('smoke: tooltip: tab tip waits, then shows');
+    }
+    document.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
   }
   // The screen recorder (#369): its own block, in its plugin folder.
   await recorderSmoke({ deck, app, render, wait });

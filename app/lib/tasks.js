@@ -5,8 +5,11 @@
 // long results go on detail lines right under the task, indented: "  > <text>".
 // "  > Sketch: sketches/<Project>/<id>.excalidraw" attaches a saved Sketch board (lib/sketches.js).
 // "  > Done: <YYYY-MM-DD HH:MM>" is when an item was marked done (#219), whoever marked it.
+// "  > Waiting: <YYYY-MM-DD HH:MM>" is when it was marked needs you (`?`, #2703); it goes when
+// the mark moves on. Both are written by setMark, never by hand.
 // "  > Tags: Research, ..." tags an item (#224); an owner item to read or look into a research
 // result goes on Me tagged Research, not on a project as a for-owner line.
+import { MAC } from './platform.js';
 
 const TASK_RE = /^- \[(.)\] #(\d+) (.*?)(?: \((\d{4}-\d{2}-\d{2}), ([^)]*)\))?(?: -> (.*))?\s*$/;
 const FOR_OWNER = /,\s*for owner\s*$/i;
@@ -95,14 +98,22 @@ export function setMark(md, n, mark, when) {
   if (i < 0) return md;
   const was = lines[i][3];
   lines[i] = lines[i].replace(/^- \[.\]/, `- [${mark}]`);
-  if (!when || (mark === 'x') === (was === 'x')) return lines.join('\n');
+  const done = (mark === 'x') !== (was === 'x'), waits = (mark === '?') !== (was === '?');
+  if (!when || (!done && !waits)) return lines.join('\n');
   let end = i + 1;
   while (end < lines.length && DETAIL_RE.test(lines[end])) end++;
-  const kept = lines.slice(i + 1, end).filter(l => !DONE_LINE.test(l));
-  if (mark === 'x') kept.push(`  > Done: ${when}`);
+  const kept = lines.slice(i + 1, end).filter(l => !(done && DONE_LINE.test(l)) && !(waits && WAITING_LINE.test(l)));
+  if (done && mark === 'x') kept.push(`  > Done: ${when}`);
+  if (waits && mark === '?') kept.push(`  > Waiting: ${when}`);
   return [...lines.slice(0, i + 1), ...kept, ...lines.slice(end)].join('\n');
 }
 const DONE_LINE = /^\s+> ?Done:/i;
+const WAITING_LINE = /^\s+> ?Waiting:/i;
+// When an item started waiting on the owner (marked `?`), "YYYY-MM-DD HH:MM", or '' (#2703).
+export function waitingOf(task) {
+  for (const d of task.details || []) { const m = d.match(/^Waiting:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$/i); if (m) return m[1]; }
+  return '';
+}
 // When an item was closed, "YYYY-MM-DD" or "YYYY-MM-DD HH:MM", or '' (#219).
 export function doneOf(task) {
   for (const d of task.details || []) { const m = d.match(/^Done:\s*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)\s*$/i); if (m) return m[1]; }
@@ -294,7 +305,7 @@ export function parseAsk(text) {
 export function tldrOf(task) {
   const plain = s => String(s || '').replace(/\[screenshot:[^\]]*\]\s*/gi, '').replace(/^Your words:\s*/i, '').trim();
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s);
-  const words = (task.details || []).map(plain).find(d => d && !/^(Result|Owner chose|Priority|Due|Version):/i.test(d)) || '';
+  const words = (task.details || []).map(plain).find(d => d && !/^(Result|Owner chose|Priority|Due|Version|Waiting):/i.test(d)) || '';
   const results = (task.details || []).filter(d => /^Result:/i.test(d)).map(d => plain(d.replace(/^Result:\s*/i, '')));
   const last = results.length ? results[results.length - 1] : plain(task.result);
   return { about: cut(words, 220), last: cut(last, 220) };
@@ -303,8 +314,10 @@ export function tldrOf(task) {
 // Markdown files an opened item points at: .md paths named in its own lines, and in the
 // lines of the tasks it follows ("after #3"). Paths come back as written (absolute, or
 // relative to the project folder); the app resolves them and keeps the ones on disk.
-const MD_PATH_RE = /(?:[A-Za-z]:[\\/])?[\w.~-]+(?:[\\/][\w.~-]+)*\.md\b/g;
-export function relatedFiles(task, tasks = []) {
+// On a Mac a path may also start at the root or the home folder (#2562).
+export const mdPathRe = mac => new RegExp(String.raw`(?:[A-Za-z]:[\\/]${mac ? String.raw`|(?<![\w.~-])~?\/` : ''})?[\w.~-]+(?:[\\/][\w.~-]+)*\.md\b`, 'g');
+const MD_PATH_RE = mdPathRe(MAC);
+export function relatedFiles(task, tasks = [], re = MD_PATH_RE) {
   const textOf = t => [t.text, t.result, ...(t.details || [])].join('\n');
   const after = new Set();
   for (const m of [task.result, ...(task.details || [])].join('\n').matchAll(/\bafter #(\d+)/gi)) {
@@ -313,7 +326,7 @@ export function relatedFiles(task, tasks = []) {
   const deps = tasks.filter(t => after.has(t.n));
   const paths = [];
   for (const t of [task, ...deps]) {
-    for (const m of textOf(t).matchAll(MD_PATH_RE)) if (!paths.includes(m[0])) paths.push(m[0]);
+    for (const m of textOf(t).matchAll(re)) if (!paths.includes(m[0])) paths.push(m[0]);
   }
   return { paths, after: [...after] };
 }

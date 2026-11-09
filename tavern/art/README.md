@@ -42,7 +42,7 @@ trouser colours match. His body lines up with the first barkeep's pixel for pixe
 headphones stand one row above, which the rig takes as an extra head row. The first barkeep's
 files stay as they are: the room's guest is still drawn from him.
 
-| `robot-<name>.jpg` (18) | `<name>.jpg` (from Downloads, via `briefs/FocusShell/tavern-chars/`) | the owner's robots, one sheet each: two front views (one plain, one holding its item) and a back view, magenta background (#252). Names: cto, pm, focus-shell, ai-fun, budget-expense-tracker, compass, builder, claude-setup, gym, research, web, video-editor, personal, spare (miner), spare-1 (hooded cloak), helper (tray), helper-2 (mushroom cap, scroll), general-1 (plain, for projects without their own robot) | 2026-10-09, Gemini, owner-generated |
+| `robot-<name>.jpg` (18) | `<name>.jpg` (from Downloads, via `briefs/FocusShell/tavern-chars/`) | the owner's robots, one sheet each: two front views (one plain, one holding its item) and a back view, magenta background (#252). Names: cto, pm, focus-shell, sparky, ledger, compass, builder, tinkerer, gym, research, web, director, personal, spare (miner), spare-1 (hooded cloak), helper (tray), helper-2 (mushroom cap, scroll), general-1 (plain, for projects without their own robot) | 2026-10-09, Gemini, owner-generated |
 
 Each robot sprite (`sprites/robot-<name>.png`) is the front view with its arms free: the middle
 figure on the CTO's sheet, the left one on every other sheet. The item views and the back views
@@ -78,7 +78,7 @@ the counter with taps and, at its left, end blocks stepping back to the wall; it
 open. The round 1 bar, round tables, fireplace and window stay in `props/` but are no longer
 placed.
 
-| `<name>-angles.jpg` (7) | `<name>-angles.jpg` (via `briefs/FocusShell/tavern-chars/angles/`) | side walking, side standing and back views (#262) for focus-shell, ai-fun, barkeep (v2), compass, budget-tracker, cto, pm | 2026-10-09, Gemini, owner-generated |
+| `<name>-angles.jpg` (7) | `<name>-angles.jpg` (via `briefs/FocusShell/tavern-chars/angles/`) | side walking, side standing and back views (#262) for focus-shell, sparky, barkeep (v2), compass, budget-tracker, cto, pm | 2026-10-09, Gemini, owner-generated |
 
 The angle views live in `sprites/angles/` as `<name>-side.png` and `<name>-back.png`, listed in
 `sprites/angles/angles.json`, which the room reads: a character listed there is drawn from the

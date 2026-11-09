@@ -4,7 +4,7 @@
 // openTour({ h, steps: [{ sel, title, text }], onEnd(finished) })
 export const TOUR = [
   { sel: '#side .sidepane', title: 'Your CTO', text: 'Tell it what you want done, in plain words. It turns that into a brief and hands it to the lead of the right project.' },
-  { sel: '#tabs .tab[title^="Click to open"], #btnNew', title: 'A project and its lead', text: 'Each project tab is a lead: a Claude Code session in that folder, doing the tasks the CTO sends. + opens another one.' },
+  { sel: '#tabs .tab[data-tip^="Click to open"], #btnNew', title: 'A project and its lead', text: 'Each project tab is a lead: a Claude Code session in that folder, doing the tasks the CTO sends. + opens another one.' },
   { sel: '#home .pp-board', title: 'The Board', text: 'Every project\'s tasks in one place: what needs you, what is ready to send, what is in progress and done. Questions from the leads wait under Waiting on you, above the CTO: answer them in place.' },
   { sel: '#home .pp-me', title: 'Self', text: 'Your own to-dos and reminders. They are never sent to a lead.' },
   { sel: '#status .talkhint', title: 'Hold to talk', text: 'Hold Ctrl+Shift+Space anywhere to talk to the CTO with your voice.' },

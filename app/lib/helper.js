@@ -73,16 +73,20 @@ export function textDraft(text) {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// The command line for one turn, run through cmd.exe (claude is a .cmd shim). Only fixed
+// The command line for one turn, run through cmd.exe (claude is a .cmd shim), or sh on a Mac,
+// where a double-quoted path must also hold no $, ` or \. Only fixed
 // flags, a checked session id and a quoted file path go on it; the message goes on stdin.
 // --setting-sources "" keeps the owner's global rules, plugins and output style out: with
 // them a turn sent about 7,200 tokens and Haiku ignored this prompt; without, about 650.
 // The model is the one picked in Settings (#174): Haiku unless changed, none for Claude's default.
 // effort: low for the helper; the recorder's extraction (#369) asks for medium.
-export function helperCommand({ promptFile, session, model = 'haiku', effort = 'low' }) {
-  const parts = ['claude', '-p', ...(/^(fable|opus|sonnet|haiku)$/.test(model || '') ? ['--model', model] : []), '--tools', '""', '--strict-mcp-config', '--disable-slash-commands',
+// read: a folder the turn may read files in with the Read tool and nothing else (#2185).
+export function helperCommand({ promptFile, session, model = 'haiku', effort = 'low', read = null }, platform = process.platform) {
+  const bad = platform === 'win32' ? /["\r\n]/ : /["\r\n$`\\]/;
+  const reads = read && !bad.test(read) ? ['--tools', 'Read', '--allowedTools', 'Read', '--add-dir', `"${read}"`] : ['--tools', '""'];
+  const parts = ['claude', '-p', ...(/^(fable|opus|sonnet|haiku)$/.test(model || '') ? ['--model', model] : []), ...reads, '--strict-mcp-config', '--disable-slash-commands',
     '--setting-sources', '""', '--effort', /^(low|medium|high)$/.test(effort) ? effort : 'low', '--output-format', 'json'];
   if (session && UUID.test(session)) parts.push('--resume', session);
-  else if (promptFile && !/["\r\n]/.test(promptFile)) parts.push('--system-prompt-file', `"${promptFile}"`);
+  else if (promptFile && !bad.test(promptFile)) parts.push('--system-prompt-file', `"${promptFile}"`);
   return parts.join(' ');
 }

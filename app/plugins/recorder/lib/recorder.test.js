@@ -2,7 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { STEPS, newSession, next, buttonFor, pickCurrent } from './session.js';
 import { parseWhisper, clock, transcriptMd, folderName, expandEnv, ffmpegAudioArgs, ffmpegRemuxArgs, whisperArgs } from './transcript.js';
-import { rectOf, bigEnough, cropFor, onDesktop, borderBounds, barSpot } from './area.js';
+import { rectOf, bigEnough, cropFor, onDesktop, borderBounds, barSpot, micLevel, micLit } from './area.js';
+
+test('recorder: the mic icon lights while the owner talks and goes dim in silence (#1792)', () => {
+  const tone = amp => Array.from({ length: 512 }, (_, i) => amp * Math.sin(i / 5));
+  assert.equal(micLevel([]), 0);
+  assert.equal(micLevel(tone(0)), 0);
+  assert.ok(Math.abs(micLevel(tone(0.2)) - 0.2 / Math.SQRT2) < 0.01);
+  assert.equal(micLit(micLevel(tone(0.001))), false, 'room hiss stays dim');
+  assert.equal(micLit(micLevel(tone(0.1))), true, 'speech lights it');
+  // Between words it holds a little, then goes dim.
+  assert.equal(micLit(0.015, true), true);
+  assert.equal(micLit(0.015, false), false);
+  assert.equal(micLit(0.005, true), false);
+});
 
 const T0 = 1_000_000;
 const rec = () => newSession('2026-10-16-0930', T0);
@@ -117,7 +130,7 @@ test('recorder: folderName from a local date', () => {
 });
 
 test('recorder: expandEnv', () => {
-  assert.equal(expandEnv('%APPDATA%\\editbay\\speech', { APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }), 'C:\\Users\\a\\AppData\\Roaming\\editbay\\speech');
+  assert.equal(expandEnv('%APPDATA%\\Whisper\\speech', { APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }), 'C:\\Users\\a\\AppData\\Roaming\\Whisper\\speech');
   assert.equal(expandEnv('%NOPE%\\x', {}), '%NOPE%\\x');
   assert.equal(expandEnv('%appdata%', { APPDATA: 'R' }), 'R');
 });

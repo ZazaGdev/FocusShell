@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { STEPS, newSession, next, buttonFor } from './session.js';
-import { namedProjects, extractPrompt, transcriptText, parseCards, shotName, ffmpegShotArgs, settleShot } from './extract.js';
+import { namedProjects, extractPrompt, transcriptText, parseCards, shotName, ffmpegShotArgs, settleShot, aboutLine, frameTimes, frameName, extractText } from './extract.js';
 import { writesFor, ctoLine } from './send.js';
 
 const T0 = 1_000_000;
@@ -160,12 +160,49 @@ test('recorder extract: parseCards checks every field', () => {
   assert.equal(a.status, 'open');
   assert.deepEqual(a.shots, []);
   assert.equal(b.kind, 'task');
-  assert.equal(b.project, 'Me');
+  assert.equal(b.project, '', 'an unknown project waits for the owner, never Me (#2185)');
   assert.equal(b.mergeInto, null);
   assert.deepEqual(b.shotAt, [10]);
   assert.equal(c.project, 'Me');
   assert.equal(c.due, '2026-10-17 10:00');
   assert.equal(d.due, '');
+});
+
+test('recorder extract: Me only when Claude says Me, "?" waits for a project (#2185)', () => {
+  const [a, b, c] = parseCards(reply([{ kind: 'task', project: 'me', title: 'Book the dentist', at: 1 }, { kind: 'task', project: '?', title: 'Add icons', at: 2 },
+    { kind: 'note', project: 'gymbuddy', title: 'Timer', at: 3 }]), OPTS);
+  assert.deepEqual([a.project, b.project, c.project], ['Me', '', 'Gymbuddy']);
+});
+
+test('recorder extract: the card step sees the screen and what each project is (#2185)', () => {
+  const p = extractPrompt({ projects: ['FocusShell', 'Brewlog'], about: { Brewlog: '---\nx: 1\n---\n# Brewlog\n\nThe brewlog.app site and the **Brewlog** channel.\nIts pages.\n\n## Later\nmore' }, frames: true, now: new Date(2026, 9, 30, 14, 9) });
+  assert.match(p, /- Brewlog: The brewlog\.app site and the Brewlog channel\. Its pages\.$/m);
+  assert.doesNotMatch(p, /- FocusShell:/, 'a project with nothing to say gets no line');
+  assert.match(p, /Read every frame with the Read tool/);
+  assert.match(p, /never "Me" for project work/);
+  assert.doesNotMatch(extractPrompt({ projects: [] }), /Read every frame/);
+  assert.doesNotMatch(p, /[\u2013\u2014]/);
+  assert.ok(aboutLine('Long '.repeat(80)).length <= 203);
+  assert.equal(aboutLine(''), '');
+  assert.deepEqual(frameTimes(0), []);
+  assert.deepEqual(frameTimes(40), [3, 18, 33]);
+  const long = frameTimes(330);
+  assert.equal(long.length, 16);
+  assert.ok(long.every(t => t < 330));
+  assert.equal(frameName(15), '0015.jpg');
+  assert.equal(extractText([{ at: 1, text: 'This page.' }], [{ at: 3, path: 'D:\\r\\frames\\0003.jpg' }]),
+    '[00:01] This page.\n\nScreen frames (read each one with the Read tool):\n[00:03] D:\\r\\frames\\0003.jpg');
+  assert.equal(extractText([{ at: 1, text: 'Hi.' }], []), '[00:01] Hi.');
+});
+
+test('recorder review: "This recording is about" fills only the cards with no project, and those cannot be sent (#2185)', () => {
+  let s = reviewWith([card('c1', { project: '' }), card('c2', { project: 'FocusShell' }), card('c3', { kind: 'reminder', project: 'Me' })]);
+  assert.equal(next(s, { type: 'send', ids: ['c1'] }), s, 'a card with no project is not sent');
+  assert.equal(next(s, { type: 'about', project: 'Me' }), s, 'Me is not a recording\'s project');
+  s = next(s, { type: 'about', project: 'Brewlog' });
+  assert.deepEqual(s.cards.map(c => c.project), ['Brewlog', 'FocusShell', 'Me']);
+  assert.equal(s.about, 'Brewlog');
+  assert.equal(next(s, { type: 'send', ids: ['c1'] }).state, 'sending');
 });
 
 test('recorder extract: a reply with no JSON or no cards list throws', () => {

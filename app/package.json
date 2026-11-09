@@ -1,7 +1,7 @@
 {
   "name": "focusshell",
   "productName": "FocusShell",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "One window for running Claude Code across many projects",
   "author": "Zaza Gejadze",
   "license": "GPL-3.0-or-later",
@@ -15,8 +15,10 @@
     "test": "node --test lib/lib.test.js",
     "dist": "npm run sketch && npm run room && npm run seed && electron-builder --win nsis",
     "pack": "npm run sketch && npm run room && npm run seed && electron-builder --win dir",
+    "keystate": "mkdir -p native/bin && swiftc -O native/keystate.swift -o native/bin/keystate",
+    "dist:mac": "npm run sketch && npm run room && npm run seed && npm run keystate && electron-builder --mac --arm64 --publish never",
     "sketch": "vite build --config sketch/vite.config.js",
-    "postinstall": "npm run sketch && npm run room && node build/name-electron.cjs",
+    "postinstall": "npm run sketch && npm run room && node build/name-electron.cjs && node build/pty-exec.cjs",
     "room": "node build/copy-room.mjs",
     "seed": "node build/seed.mjs"
   },
@@ -48,6 +50,7 @@
     },
     "asar": false,
     "npmRebuild": false,
+    "afterPack": "build/pty-exec.cjs",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -56,12 +59,15 @@
       "main.js",
       "me-files.js",
       "helper.js",
+      "card-summaries.js",
       "catchup.js",
       "setup-check.js",
       "updater.js",
       "project-page.js",
       "code-web.js",
       "missed.js",
+      "background.js",
+      "worktree-sweep.js",
       "lead-status.js",
       "window-guard.js",
       "requests.js",
@@ -69,6 +75,8 @@
       "commits.js",
       "plugins-host.js",
       "plugin-services.js",
+      "permission-note.js",
+      "native/bin/**",
       "deck.mjs",
       "preload.cjs",
       "package.json",
@@ -77,6 +85,7 @@
       "renderer/**",
       "code-ext/**",
       "plugins/**",
+      "lead-plugin/**",
       "build/copy-room.mjs",
       "build/icon.ico",
       "build/icon.png"
@@ -98,6 +107,25 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon-mac.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "14.0",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "FocusShell-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "FocusShell records your voice with the screen recorder.",
+        "NSAppleEventsUsageDescription": "FocusShell starts Dictation for the microphone button on a card."
+      }
+    },
+    "dmg": {
+      "artifactName": "FocusShell-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

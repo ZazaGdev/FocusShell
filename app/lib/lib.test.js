@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import './missed.test.js';
 import './ctoline.test.js';
 import './catchup.test.js';
@@ -13,16 +14,21 @@ import '../plugins/recorder/lib/recorder.test.js';
 import '../plugins/recorder/lib/review.test.js';
 import '../plugins/recorder/lib/brainstorm.test.js';
 import '../plugins/recorder/lib/cleanup.test.js';
+import '../plugins/recorder/lib/ctrl.test.js';
+import '../plugins/recorder/lib/videos.test.js';
+import './leadsplit.test.js';
+import './tip.test.js';
 import { parseTasks, nextNumber, addTaskLine, projectState, optionsOf, parseNotes, addNoteLine } from './tasks.js';
 import { LAYOUTS, slotCount, autoLayout, splitWith } from './layouts.js';
 import { parseProjects, trustedPaths, isTrusted, mergeProjects, projectForPath, paneColour, withProjectModel } from './projects.js';
-import { findLinks, dropText, stretchCandidates, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer, textParts } from './links.js';
+import { trimLink, findLinks, dropText, stretchCandidates, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer, textParts, cardLinks, stillPainted } from './links.js';
+import { OWN_APP_FILES } from './owntools.js';
 import { serveWebArgs, servePort, codeUrl, isCodeUrl, orphanServers, withTrusted } from './codeweb.js';
 import { uriPath, liveExtensions, extensionPlan, serverManifest, pageFiles, pageSyncScript, syncServer, machineSettings, themeBase } from './codesync.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, secondId, secondOf, secondLeadNote, submits, working, owns, sessionName, requestModel, demoArgs, withoutRemote, ownSetupSettings, withSettings, DEMO_NOTE, keepShell, shellTitle, CLAUDE_ENDED, nameProblem, commandLine, spawnArgs } from './sessions.js';
+import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraId, extraOf, projectOf, leadNumber, nextLead, MAX_LEADS, extraLeadNote, submits, working, owns, sessionName, requestModel, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, DEMO_NOTE, keepShell, shellTitle, CLAUDE_ENDED, nameProblem, commandLine, spawnArgs } from './sessions.js';
 
 const md = [
   '# Streaky tasks',
@@ -114,11 +120,11 @@ test('projects.json parses with a BOM', () => {
 });
 
 test('trusted paths survive keys that differ only by case', () => {
-  const j = '{"projects":{"g:/SideProjects/A":{"hasTrustDialogAccepted":true},"G:/SideProjects/A":{"x":1},"G:/SideProjects/B":{}}}';
+  const j = '{"projects":{"g:/Projects/A":{"hasTrustDialogAccepted":true},"G:/Projects/A":{"x":1},"G:/Projects/B":{}}}';
   const t = trustedPaths(j);
-  assert.ok(isTrusted('G:\\SideProjects\\A', t));
-  assert.ok(!isTrusted('G:\\SideProjects\\B', t));
-  assert.ok(!isTrusted('G:\\SideProjects\\C', t));
+  assert.ok(isTrusted('G:\\Projects\\A', t));
+  assert.ok(!isTrusted('G:\\Projects\\B', t));
+  assert.ok(!isTrusted('G:\\Projects\\C', t));
 });
 
 test('session arguments match v1, plus Remote Control under the session name', () => {
@@ -139,6 +145,13 @@ test('leadArgs can resume a past session, and ignores anything that is not a ses
   const id = 'c8a369b3-0786-4d15-8d67-fbae24b95693';
   assert.deepEqual(leadArgs('A', 'p.md', id).slice(-2), ['--resume', id]);
   assert.equal(leadArgs('A', 'p.md', '--dangerous').includes('--resume'), false);
+});
+
+test('leadArgs loads the lead plugin (effort skills, #2681) only when given its folder', () => {
+  const id = 'c8a369b3-0786-4d15-8d67-fbae24b95693';
+  assert.deepEqual(leadArgs('A', 'p.md', null, 'C:\\app\\lead-plugin').slice(-2), ['--plugin-dir', 'C:\\app\\lead-plugin']);
+  assert.deepEqual(leadArgs('A', 'p.md', id, 'C:\\app\\lead-plugin').slice(-4), ['--plugin-dir', 'C:\\app\\lead-plugin', '--resume', id]);
+  assert.equal(leadArgs('A', 'p.md', null, null).includes('--plugin-dir'), false);
 });
 
 test('a session counts as used once something is submitted to it or it starts working', () => {
@@ -180,6 +193,17 @@ test('Restart resumes the conversation the pane last ran (#197)', () => {
   ];
   assert.equal(lastConversation(files, 'lead-Blogger'), 'mine');
   assert.equal(lastConversation(files, 'lead-Streaky'), null);
+});
+
+test('paneConversation: a newer unnamed log is the pane Claude started again by hand (#1887)', () => {
+  const title = n => `{"type":"custom-title","customTitle":"${n}","sessionId":"x"}\n{"type":"agent-name","agentName":"${n}"}`;
+  const bare = '{"type":"user","message":{"content":"the brief said \\"customTitle\\":\\"cto\\""}}';
+  const named = { id: 'named', mtime: 1, text: title('cto') };
+  assert.equal(paneConversation([named, { id: 'bare', mtime: 2, text: bare }], 'cto'), 'bare');
+  assert.equal(paneConversation([{ id: 'bare', mtime: 0, text: bare }, named], 'cto'), 'named', 'an older unnamed log is not it');
+  assert.equal(paneConversation([named, { id: 'group', mtime: 2, text: title('cto-Mobile') }], 'cto'), 'named', 'another CTO in the same folder is not it');
+  assert.equal(paneConversation([{ id: 'bare', mtime: 2, text: bare }], 'cto'), 'bare');
+  assert.equal(paneConversation([], 'cto'), null);
 });
 
 test('cleanEnv drops inherited Claude session variables', () => {
@@ -224,10 +248,10 @@ test('mergeProjects lists a folder once when two paths reach the same real folde
 });
 
 test('mergeProjects keeps a projects.json entry outside the scan root, once', () => {
-  const explicit = [{ name: 'Cliptools', path: 'D:\\Claude Setup', test: '' }];
+  const explicit = [{ name: 'Cliptools', path: 'D:\\Team Notes', test: '' }];
   const alone = mergeProjects(explicit, [{ name: 'Streaky', path: 'D:\\S\\Streaky' }], 'D:\\S\\FocusShell\\manager');
-  assert.deepEqual(alone.map(p => [p.name, p.path]), [['Cliptools', 'D:\\Claude Setup'], ['Streaky', 'D:\\S\\Streaky']]);
-  const real = p => p.replace('D:\\S\\Cliptools', 'D:\\Claude Setup');
+  assert.deepEqual(alone.map(p => [p.name, p.path]), [['Cliptools', 'D:\\Team Notes'], ['Streaky', 'D:\\S\\Streaky']]);
+  const real = p => p.replace('D:\\S\\Cliptools', 'D:\\Team Notes');
   const linked = mergeProjects(explicit, [{ name: 'Cliptools', path: 'D:\\S\\Cliptools' }], 'D:\\S\\FocusShell\\manager', real);
   assert.equal(linked.length, 1);
 });
@@ -243,22 +267,116 @@ test('dropText joins dropped paths with spaces and quotes paths that contain one
 });
 
 test('findLinks picks out Windows paths and web links, without trailing punctuation', () => {
-  const s = String.raw`APK at G:\SideProjects\Workout\android\app\build\outputs\apk\release\app-release.apk. See https://example.com/x). Also G:/SideProjects/Streaky, done.`;
+  const s = String.raw`APK at G:\Projects\Workout\android\app\build\outputs\apk\release\app-release.apk. See https://example.com/x). Also G:/Projects/Streaky, done.`;
   assert.deepEqual(findLinks(s).map(l => l.text), [
-    String.raw`G:\SideProjects\Workout\android\app\build\outputs\apk\release\app-release.apk`,
+    String.raw`G:\Projects\Workout\android\app\build\outputs\apk\release\app-release.apk`,
     'https://example.com/x',
-    'G:/SideProjects/Streaky',
+    'G:/Projects/Streaky',
   ]);
   assert.equal(findLinks('no paths here: 1:2, a:b').length, 0);
 });
 
 test('continuesRow joins a row Claude Code broke mid-path, at the same text indent', () => {
-  const a = String.raw`  G:\SideProjects\Workout\android\app\build\outputs\apk\releas   `;
+  const a = String.raw`  G:\Projects\Workout\android\app\build\outputs\apk\releas   `;
   assert.ok(continuesRow(a, String.raw`  e\app-release.apk`));
   assert.ok(continuesRow(String.raw`● Built G:\Side\apk\releas`, String.raw`  e\app-release.apk`));
   assert.ok(!continuesRow(a, String.raw`    e\app-release.apk`), 'deeper indent');
   assert.ok(!continuesRow(a, ''), 'blank row');
   assert.ok(!continuesRow('  ends with a space ', ' x'));
+  // #1822: a new list item at the same indent is a new line, not the rest of the link.
+  for (const b of ['  - A) Keep the blocks', '  * x', '  ● Done', '  1. First', '  2) Second', '  A) Keep', '  b. next'])
+    assert.ok(!continuesRow('  see http://127.0.0.1:5291/effort-vs-energy/', b), b);
+  assert.ok(continuesRow('  see https://x.com/effort-vs-en', '  -ergy/x'), 'a dash inside the link still continues it');
+});
+
+// The pane's rule (terminal.js): rows the terminal soft-wrapped are one unit; a later unit is
+// joined on where continuesRow says so; a web link then keeps what wrappedUrl allows.
+function paneUrl(units, cols) {
+  const joined = [units[0]];
+  for (const u of units.slice(1)) { const last = joined[joined.length - 1]; if (!continuesRow(last.rows[last.rows.length - 1], u.rows[0])) break; joined.push(u); }
+  const { text, pos, cuts } = joinRows(joined), l = findLinks(text).find(x => /^https?:/.test(x.text));
+  const u = !crossedCuts(l, cuts).length ? l : wrappedUrl(l, cuts, pos, cols, undefined, text) || { ...l, text: trimLink(l.text.slice(0, cuts.find(c => c > l.index) - l.index)) };
+  return { text: u.text, end: pos[u.index + u.text.length - 1] };
+}
+
+test('a web link ending at the right edge does not underline the next line (#1822)', () => {
+  // The screenshot: the URL ends within a few columns of the edge, the next row is "- A) ...".
+  const url = 'http://127.0.0.1:5291/effort-vs-energy/', row = `   lead's reasoning: ${url}`, cols = row.length + 2;
+  let r = paneUrl([{ y: 1, rows: [row] }, { y: 2, rows: ['   - A) Keep the blocks, but call them "parts"'] }], cols);
+  assert.equal(r.text, url);
+  assert.deepEqual(r.end, { x: row.length, y: 1 });
+  // Exactly at the right edge, then trailing punctuation, then a new indented line.
+  r = paneUrl([{ y: 1, rows: [`   see ${url}`] }, { y: 2, rows: ['   - B) Show the work'] }], `   see ${url}`.length);
+  assert.equal(r.text, url);
+  r = paneUrl([{ y: 1, rows: [`   (see ${url}).`] }, { y: 2, rows: ['   - B) Show the work'] }], `   (see ${url}).`.length);
+  assert.equal(r.text, url);
+  assert.equal(r.end.y, 1);
+  // A deeper indented line is never joined on.
+  r = paneUrl([{ y: 1, rows: [`   see ${url}`] }, { y: 2, rows: ['       more detail'] }], `   see ${url}`.length);
+  assert.equal(r.text, url);
+});
+
+test('a web link the terminal soft-wraps, or Claude Code breaks, still links whole (#1822)', () => {
+  // Soft wrap: one unit of two full rows; the link runs on into the second row.
+  const soft = paneUrl([{ y: 1, rows: ['see https://example.com/a/very/long/pa', 'th/x and more'] }], 38);
+  assert.equal(soft.text, 'https://example.com/a/very/long/path/x');
+  assert.deepEqual(soft.end, { x: 4, y: 2 });
+  // Claude Code's own break at the edge, at the same indent.
+  const hard = paneUrl([{ y: 1, rows: ['  see https://example.com/a/very/long/pa'] }, { y: 2, rows: ['  th/x'] }], 42);
+  assert.equal(hard.text, 'https://example.com/a/very/long/path/x');
+  assert.deepEqual(hard.end, { x: 6, y: 2 });
+});
+
+test('a web link stops at the URL, not at punctuation or the next line (#2243)', () => {
+  // The screenshot: the sentence ends "8236/." near the edge and the next row starts "It".
+  const row = '● The pop-up options page is live on this PC: http://127.0.0.1:8236/.', cols = row.length + 1;
+  let r = paneUrl([{ y: 1, rows: [row] }, { y: 2, rows: ['  It shows today and the three options side by side, made from your'] }], cols);
+  assert.equal(r.text, 'http://127.0.0.1:8236/');
+  assert.equal(r.end.y, 1);
+  // Any sentence end before a capitalised word, on a page or a file name too.
+  for (const [u, next] of [['https://example.com/page.', 'Then'], ['http://localhost:5173/app/x.html,', 'Open'], ['http://localhost:3000/a;', 'Both']]) {
+    r = paneUrl([{ y: 1, rows: ['  see ' + u] }, { y: 2, rows: [`  ${next} it`] }], u.length + 7);
+    assert.equal(r.text, u.replace(/[.,;]$/, ''), u);
+  }
+  // Trailing punctuation at the end of a sentence on one row.
+  for (const p of ['.', ',', ';', ':', ')', ']', "'", '"', ').', '".'])
+    assert.equal(findLinks(`open http://127.0.0.1:8236/x${p} now`)[0].text, 'http://127.0.0.1:8236/x', p);
+  assert.equal(findLinks('(see http://localhost:5173/app/)')[0].text, 'http://localhost:5173/app/');
+  // A closing bracket stays when the URL has its opening one.
+  assert.equal(findLinks('see https://en.wikipedia.org/wiki/Mercury_(planet).')[0].text, 'https://en.wikipedia.org/wiki/Mercury_(planet)');
+  assert.equal(findLinks('(https://en.wikipedia.org/wiki/Mercury_(planet))')[0].text, 'https://en.wikipedia.org/wiki/Mercury_(planet)');
+  assert.equal(findLinks('see http://x.com/a?q=[1].')[0].text, 'http://x.com/a?q=[1]');
+  // A space ends it; a terminal soft wrap that breaks at a space keeps the next word out.
+  assert.equal(findLinks('http://localhost:8080/api/v1 and more')[0].text, 'http://localhost:8080/api/v1');
+  r = paneUrl([{ y: 1, rows: ['see http://localhost:8080/a/b. ', 'It works'] }], 31);
+  assert.equal(r.text, 'http://localhost:8080/a/b');
+  // A long URL that wraps across rows, soft or broken by Claude Code, still opens whole.
+  r = paneUrl([{ y: 1, rows: ['  see http://127.0.0.1:8236/a/very/long/pa'] }, { y: 2, rows: ['  th/Index.html'] }, { y: 3, rows: ['  next'] }], 44);
+  assert.equal(r.text, 'http://127.0.0.1:8236/a/very/long/path/Index.html');
+  r = paneUrl([{ y: 1, rows: ['see http://localhost:5173/a/very/long/pa', 'th/x.'] }], 40);
+  assert.equal(r.text, 'http://localhost:5173/a/very/long/path/x');
+  // Windows paths keep their own rules.
+  assert.equal(findLinks(String.raw`saved to D:\Projects\FocusShell\x.md.`)[0].text, String.raw`D:\Projects\FocusShell\x.md`);
+  assert.equal(findLinks(String.raw`in C:\Program Files (x86)\App\a.exe now`)[0].text, String.raw`C:\Program Files (x86)\App\a.exe`);
+  assert.equal(findLinks(String.raw`(D:\a\b.md)`)[0].text, String.raw`D:\a\b.md`);
+});
+
+test('a link is painted only on rows still holding the text it was found on (#1886)', () => {
+  // The CTO pane's deck output: the path's rows, then Claude Code redrew them as a list line.
+  const before = new Map([[9, String.raw`     D:\Projects\FocusShell\tasks\PixelFarmSimulator.md (+2`], [10, '     -0)']]);
+  const after = new Map([[9, '       3640  - [~] #1877 Capture footage for the "Same room, two'], [10, '             coders" Short (2026-10-27, lead-PixelFarmSimulator']]);
+  const range = { start: { x: 6, y: 10 }, end: { x: 58, y: 10 } };
+  assert.equal(stillPainted(range, before, r => before.get(r)), true, 'unchanged rows keep their paint');
+  assert.equal(stillPainted(range, before, r => after.get(r)), false, 'a redrawn row gets none');
+  // A link over two rows needs both; a row never read is never painted.
+  assert.equal(stillPainted({ start: { y: 10 }, end: { y: 11 } }, before, r => (r === 10 ? after.get(r) : before.get(r))), false);
+  assert.equal(stillPainted({ start: { y: 12 }, end: { y: 12 } }, before, () => ''), false);
+});
+
+test('a path with spaces still links whole beside the list rule (#1528, #1822)', () => {
+  const l = findLinks(String.raw`- D:\Team Notes\x\2026-10-22.md is ready`)[0];
+  assert.equal(l.text, String.raw`D:\Team Notes\x\2026-10-22.md`);
+  assert.ok(continuesRow(String.raw`  D:\Team`, String.raw`  Notes\x\2026-10-22.md`), 'broken at its space');
 });
 
 test('joinRows maps every character back to its cell and marks the joins', () => {
@@ -300,14 +418,19 @@ test('a web link across rows counts only when the row it leaves was full', () =>
 test('opensInExplorer picks binary files by extension, not text files', () => {
   assert.ok(opensInExplorer(String.raw`G:\S\android\app\build\outputs\apk\release\app-release.apk`));
   assert.ok(opensInExplorer('D:/x/Setup.EXE') && opensInExplorer('a.png') && opensInExplorer('b.pdf'));
-  assert.ok(opensInExplorer(String.raw`D:\Videos\intro-rough-2.editbay`), 'a video editor project (#317)');
-  assert.ok(opensInExplorer(String.raw`D:\SideProjects\Papers\output\sprite-pipeline\report.html`) && opensInExplorer('a.HTM'), 'a web page (#318)');
+  for (const e of OWN_APP_FILES) assert.ok(opensInExplorer(String.raw`D:\Videos\intro-rough-2.` + e), `a .${e} file belongs to its own program (#317)`);
+  assert.ok(opensInExplorer(String.raw`D:\Projects\Papers\output\sprite-pipeline\report.html`) && opensInExplorer('a.HTM'), 'a web page (#318)');
   assert.ok(!opensInExplorer('README.md') && !opensInExplorer('main.js') && !opensInExplorer('D:\\x\\apk'));
 });
 
 test('joinReadings offers a joined path cut short at each later join, then whole', () => {
   const { text, cuts } = joinRows([{ y: 1, rows: [String.raw`  D:\Side`] }, { y: 2, rows: [String.raw`  \Proj`] }, { y: 3, rows: ['  see'] }]);
   assert.deepEqual(joinReadings(findLinks(text)[0], cuts), [String.raw`D:\Side\Proj`, String.raw`D:\Side\Projsee`]);
+});
+
+test('joinReadings cut short at a join drops the comma before the next path (#1339)', () => {
+  const { text, cuts } = joinRows([{ y: 1, rows: [String.raw`D:\S\a.png, D:\Pro`] }, { y: 2, rows: [String.raw`jects\b.png,`] }, { y: 3, rows: [String.raw`D:\S\c.png. Only`] }]);
+  assert.deepEqual(joinReadings(findLinks(text)[1], cuts)[0], String.raw`D:\Projects\b.png`);
 });
 
 import { touchRecent, recentList, lastSession } from './presets.js';
@@ -326,7 +449,7 @@ test('lastSession only when the previous run had project tabs', () => {
 });
 
 import { setMark, doneOf, historyLabel, itemTags, hasTag, toggleTag } from './tasks.js';
-import { encodeProjectDir, summarizeSession, lastConversation } from './history.js';
+import { encodeProjectDir, summarizeSession, lastConversation, paneConversation } from './history.js';
 
 test('setMark changes only the numbered task', () => {
   const md = '# A tasks\n- [ ] #1 one (2026-10-01, user)\n- [~] #12 twelve (2026-10-01, lead-A)\n';
@@ -350,13 +473,29 @@ test('setMark writes the closed date under an item marked done, and drops it on 
   assert.equal(historyLabel(old, new Date(2026, 9, 7)), 'added 1 Oct');
 });
 
+test('setMark writes when an item started waiting on the owner, and drops it when the mark moves on (#2703)', async () => {
+  const { waitingOf } = await import('./tasks.js');
+  const md = '# A tasks\n- [~] #1 one (2026-10-01, lead-A)\n  > Your words: do it\n- [ ] #2 two (2026-10-02, user)\n';
+  const asked = setMark(md, 1, '?', '2026-11-09 14:32');
+  assert.equal(asked, '# A tasks\n- [?] #1 one (2026-10-01, lead-A)\n  > Your words: do it\n  > Waiting: 2026-11-09 14:32\n- [ ] #2 two (2026-10-02, user)\n');
+  assert.equal(waitingOf(parseTasks(asked)[0]), '2026-11-09 14:32');
+  assert.equal(setMark(asked, 1, '?', '2026-11-09 15:00'), asked, 'still waiting: the first time stays');
+  assert.equal(setMark(asked, 1, '~', '2026-11-09 16:00'), md, 'answered and working again: the line goes');
+  const closed = setMark(asked, 1, 'x', '2026-11-10 09:00');
+  assert.equal(closed, '# A tasks\n- [x] #1 one (2026-10-01, lead-A)\n  > Your words: do it\n  > Done: 2026-11-10 09:00\n- [ ] #2 two (2026-10-02, user)\n', 'closed from waiting: Done replaces Waiting');
+  const reopened = setMark(closed, 1, '?', '2026-11-11 08:15');
+  assert.equal(reopened, '# A tasks\n- [?] #1 one (2026-10-01, lead-A)\n  > Your words: do it\n  > Waiting: 2026-11-11 08:15\n- [ ] #2 two (2026-10-02, user)\n', 'reopened straight to waiting: Done goes, Waiting comes');
+  assert.equal(setMark(md, 1, '?'), md.replace('[~]', '[?]'), 'no time given (the ideas deck): no line');
+  assert.equal(waitingOf(parseTasks(md)[0]), '', 'an item asked before this change has no time');
+});
+
 test('withTrusted adds the missing project folders to VS Code trust for this port only (#226)', () => {
   const byHand = JSON.stringify({ uriTrustInfo: [{ uri: { scheme: 'vscode-remote', authority: '127.0.0.1:47123', path: '/d:/BX/project' }, trusted: true },
-    { uri: { scheme: 'vscode-remote', authority: '127.0.0.1:50791', path: '/d:/SideProjects/A' }, trusted: true }] });
-  const next = JSON.parse(withTrusted(byHand, 47123, ['D:\\SideProjects\\A', 'd:\\sideprojects\\a\\', 'D:\\BX\\project']));
+    { uri: { scheme: 'vscode-remote', authority: '127.0.0.1:50791', path: '/d:/Projects/A' }, trusted: true }] });
+  const next = JSON.parse(withTrusted(byHand, 47123, ['D:\\Projects\\A', 'd:\\projects\\a\\', 'D:\\BX\\project']));
   assert.equal(next.uriTrustInfo.length, 3, 'kept both, added A once; BX was already there');
-  assert.deepEqual(next.uriTrustInfo[2], { uri: { $mid: 1, scheme: 'vscode-remote', authority: '127.0.0.1:47123', path: '/d:/SideProjects/A' }, trusted: true });
-  assert.equal(withTrusted(JSON.stringify(next), 47123, ['D:\\SideProjects\\A']), null, 'nothing missing');
+  assert.deepEqual(next.uriTrustInfo[2], { uri: { $mid: 1, scheme: 'vscode-remote', authority: '127.0.0.1:47123', path: '/d:/Projects/A' }, trusted: true });
+  assert.equal(withTrusted(JSON.stringify(next), 47123, ['D:\\Projects\\A']), null, 'nothing missing');
   assert.equal(JSON.parse(withTrusted('', 47123, ['G:\\X'])).uriTrustInfo[0].uri.path, '/g:/X');
 });
 
@@ -384,7 +523,7 @@ test('Me Done lists the latest closed first, then undated ones by number (#219)'
 });
 
 test('encodeProjectDir matches Claude Code folder names', () => {
-  assert.equal(encodeProjectDir(String.raw`G:\SideProjects\Papers`), 'G--SideProjects-Papers');
+  assert.equal(encodeProjectDir(String.raw`G:\Projects\Papers`), 'G--Projects-Papers');
 });
 
 test('summarizeSession picks the first typed message and counts turns', () => {
@@ -543,15 +682,31 @@ test('groups: a remembered view fits the members and the layout', () => {
 });
 
 test('links: a path with spaces offers longer readings to check on disk', () => {
-  const s = String.raw`Edited D:\Claude Setup\.claude\settings.local.json: added the rule`;
+  const s = String.raw`Edited D:\Team Notes\.claude\settings: added the rule`;
   const [l] = findLinks(s);
-  assert.equal(l.text, String.raw`D:\Claude`);
+  assert.equal(l.text, String.raw`D:\Team`);
   const c = stretchCandidates(s, l);
-  assert.equal(c[0], String.raw`D:\Claude Setup\.claude\settings.local.json`);
+  assert.equal(c[0], String.raw`D:\Team Notes\.claude\settings`);
   assert.equal(c.length, 4);
   // The app keeps the longest reading that exists, so the following words stay out.
-  const onDisk = new Set([String.raw`D:\Claude Setup\.claude\settings.local.json`]);
-  assert.equal([...c].reverse().find(p => onDisk.has(p)), String.raw`D:\Claude Setup\.claude\settings.local.json`);
+  const onDisk = new Set([String.raw`D:\Team Notes\.claude\settings`]);
+  assert.equal([...c].reverse().find(p => onDisk.has(p)), String.raw`D:\Team Notes\.claude\settings`);
+});
+
+test('links: a path with spaces runs on to its file extension, on cards too (#1528)', () => {
+  const file = String.raw`D:\Team Notes\Iterator\2026-10-22.md`;
+  for (const s of [`Report: ${file}`, `${file} is ready.`, `see ${file}, then run it`, `(${file})`]) {
+    assert.deepEqual(findLinks(s).map(l => l.text), [file], s);
+  }
+  assert.deepEqual(textParts(`Read ${file} today`).map(p => p.text), ['Read ', file, ' today']);
+  assert.deepEqual(cardLinks({ result: `DONE #1 | written to ${file} | tests: none` }).map(l => [l.href, l.label]), [[file, '2026-10-22.md']]);
+  assert.equal(findLinks(String.raw`D:\My Folder\file name.txt`)[0].text, String.raw`D:\My Folder\file name.txt`);
+  // Prose after a path is never pulled in: no slash on the way, a stop, or a second path.
+  assert.equal(findLinks(String.raw`D:\Claude has notes.md`)[0].text, String.raw`D:\Claude`);
+  assert.equal(findLinks(String.raw`D:\Claude, see docs\a.md`)[0].text, String.raw`D:\Claude`);
+  assert.equal(findLinks(String.raw`D:\x.md and docs\b.md`)[0].text, String.raw`D:\x.md`);
+  assert.deepEqual(findLinks(String.raw`D:\a b\c and D:\e.md`).map(l => l.text), [String.raw`D:\a`, String.raw`D:\e.md`]);
+  assert.equal(findLinks(String.raw`D:\Team Notes\Iterator is a folder`)[0].text, String.raw`D:\Team`);
 });
 
 test('links: a path Claude Code broke at its space is read back with the space (#350)', () => {
@@ -574,9 +729,9 @@ test('links: a path Claude Code broke at its space is read back with the space (
   assert.equal(findLinks(tick)[0].text, file);
   const { text, cuts } = joinRows([{ y: 1, rows: [String.raw`see ` + '`' + String.raw`D:\Brew`] }, { y: 2, rows: [String.raw`Notes\setup-visual\media\setup-map-1080x1350.mp4` + '`.'] }]);
   assert.equal(pick(text, findLinks(text)[0], cuts).target, file);
-  // On one row, followed by a colon, the stretch finds it as before.
+  // On one row, followed by a colon, it links whole up to its extension (#1528).
   const one = String.raw`with ${file}: posted`;
-  assert.equal([...stretchCandidates(one, findLinks(one)[0])].reverse().find(p => onDisk.has(p)), file);
+  assert.equal(findLinks(one)[0].text, file);
   // Ordinary words after a path are never pulled in: nothing longer exists.
   const prose = String.raw`D:\Claude is a drive`;
   assert.equal([...stretchCandidates(prose, findLinks(prose)[0])].reverse().find(p => onDisk.has(p)), undefined);
@@ -584,9 +739,9 @@ test('links: a path Claude Code broke at its space is read back with the space (
 });
 
 test('links: paths without spaces and web links link as before', () => {
-  const s = String.raw`see G:\SideProjects\Streaky\app.json, then https://x.io/a.`;
+  const s = String.raw`see G:\Projects\Streaky\app.json, then https://x.io/a.`;
   const ls = findLinks(s);
-  assert.deepEqual(ls.map(l => l.text), [String.raw`G:\SideProjects\Streaky\app.json`, 'https://x.io/a']);
+  assert.deepEqual(ls.map(l => l.text), [String.raw`G:\Projects\Streaky\app.json`, 'https://x.io/a']);
   assert.equal(stretchCandidates(s, ls[1]).length, 0);
   assert.equal(stretchCandidates(String.raw`end D:\x`, findLinks(String.raw`end D:\x`)[0]).length, 0);
 });
@@ -598,8 +753,8 @@ test('links: a quoted path links whole', () => {
 });
 
 test('links: a path after "Open in VS Code:" is marked to open in VS Code', () => {
-  const s = String.raw`Open in VS Code: D:\SideProjects\FocusShell\app\main.js`;
-  assert.deepEqual(findLinks(s).map(l => [l.text, !!l.code]), [[String.raw`D:\SideProjects\FocusShell\app\main.js`, true]]);
+  const s = String.raw`Open in VS Code: D:\Projects\FocusShell\app\main.js`;
+  assert.deepEqual(findLinks(s).map(l => [l.text, !!l.code]), [[String.raw`D:\Projects\FocusShell\app\main.js`, true]]);
   assert.equal(findLinks(String.raw`see D:\x\y.js`)[0].code, undefined);
   assert.equal(findLinks(String.raw`open in vscode: "D:\My Files\a b.txt"`)[0].code, true);
 });
@@ -742,22 +897,43 @@ test('links: folders named in recent output come newest first, without web links
   assert.deepEqual(folderHints(rows), [String.raw`D:\Blogger\Videos\1`, String.raw`D:\Blogger\Videos\2`]);
 });
 
-test('sessions: a second lead has its own id and name, never a project name', () => {
-  assert.equal(secondId('FocusShell'), 'FocusShell:2');
-  assert.equal(secondOf('FocusShell:2'), 'FocusShell');
-  assert.equal(secondOf('FocusShell'), null);
-  assert.equal(secondOf('Budgetly-2'), null);
+test('sessions: extra leads 2 to 5 have their own ids and names, never a project name (#1485)', () => {
+  assert.equal(extraId('FocusShell', 2), 'FocusShell:2');
+  assert.deepEqual(extraOf('FocusShell:2'), { project: 'FocusShell', n: 2 });
+  assert.deepEqual(extraOf('FocusShell:5'), { project: 'FocusShell', n: 5 });
+  assert.equal(extraOf('FocusShell:6'), null, 'a sixth lead is not a lead');
+  assert.equal(extraOf('FocusShell:1'), null);
+  assert.equal(extraOf('FocusShell'), null);
+  assert.equal(extraOf('Budgetly-2'), null);
+  assert.equal(projectOf('FocusShell:4'), 'FocusShell'); assert.equal(projectOf('Budgetly-2'), 'Budgetly-2');
+  assert.equal(leadNumber('FocusShell:3'), 3); assert.equal(leadNumber('FocusShell'), 1);
+  assert.equal(sessionName('FocusShell:4'), 'lead-FocusShell-4');
   assert.equal(leadArgs('FocusShell-2', 'p.md')[3], 'lead-FocusShell-2');
+  assert.equal(MAX_LEADS, 5);
 });
 
-test('sessions: the second lead is told its name and how to share the project', () => {
-  const same = secondLeadNote('Budgetly', null);
+test('sessions: the next free lead number, none once five run (#1485)', () => {
+  assert.equal(nextLead(() => false), 2);
+  assert.equal(nextLead(n => n === 2), 3);
+  assert.equal(nextLead(n => n === 3), 2, 'a gap is filled first');
+  assert.equal(nextLead(() => true), null);
+});
+
+test('sessions: an extra lead is told its name and how to share the project', () => {
+  const same = extraLeadNote('Budgetly', 2, null);
   assert.match(same, /lead-Budgetly-2/);
+  assert.match(same, /the second lead/);
   assert.match(same, /git stash/);
   assert.doesNotMatch(same, /worktree/i);
-  const wt = secondLeadNote('Budgetly', { main: 'G:/SideProjects/Budgetly' });
+  const wt = extraLeadNote('Budgetly', 2, { main: 'G:/Projects/Budgetly' });
   assert.match(wt, /merge --ff-only lead-2/);
-  assert.match(wt, /G:\/SideProjects\/Budgetly/);
+  assert.match(wt, /G:\/Projects\/Budgetly/);
+  const four = extraLeadNote('Budgetly', 4, { main: 'G:/Projects/Budgetly' });
+  assert.match(four, /`lead-Budgetly-4`/);
+  assert.match(four, /the fourth lead/);
+  assert.match(four, /branch `lead-4`/);
+  assert.match(four, /merge --ff-only lead-4/);
+  assert.doesNotMatch(four, /lead-2`? itself|ff-only lead-2/);
 });
 
 test('settings: boards in test view are kept as a list of board keys', () => {
@@ -805,6 +981,7 @@ test('tldrOf gives the first words without screenshot notes, and the latest resu
   const t = { result: 'short', details: ['[screenshot: a page] Move the tooltip to the title', 'Result: first try', 'Owner chose a', 'Result: tooltip moved'] };
   assert.deepEqual(tldrOf(t), { about: 'Move the tooltip to the title', last: 'tooltip moved' });
   assert.equal(tldrOf({ result: 'only this', details: [] }).last, 'only this');
+  assert.equal(tldrOf({ result: 'needs you', details: ['Waiting: 2026-11-09 14:32'] }).about, '', 'the waiting time is not what the card is about (#2703)');
 });
 
 
@@ -866,10 +1043,10 @@ test('codeweb: serve-web args, port from its output, folder address, own-server 
   assert.ok(!serveWebArgs('tok.txt').includes('--connection-token'));
   assert.equal(servePort('*\nWeb UI available at http://127.0.0.1:52811?tkn=abc\n'), 52811);
   assert.equal(servePort('Downloading server'), null);
-  assert.equal(codeUrl(7811, 'a b', 'D:\\SideProjects\\FocusShell\\'), 'http://127.0.0.1:7811/?tkn=a%20b&folder=%2Fd%3A%2FSideProjects%2FFocusShell');
-  const withFile = new URL(codeUrl(7811, 't', 'D:\\Side Projects\\X', 'D:\\Side Projects\\X\\docs\\a b.md'));
-  assert.equal(withFile.searchParams.get('folder'), '/d:/Side Projects/X');
-  assert.deepEqual(JSON.parse(withFile.searchParams.get('payload')), [['openFile', 'vscode-remote://127.0.0.1:7811/d:/Side%20Projects/X/docs/a%20b.md']]);
+  assert.equal(codeUrl(7811, 'a b', 'D:\\Projects\\FocusShell\\'), 'http://127.0.0.1:7811/?tkn=a%20b&folder=%2Fd%3A%2FProjects%2FFocusShell');
+  const withFile = new URL(codeUrl(7811, 't', 'D:\\My Projects\\X', 'D:\\My Projects\\X\\docs\\a b.md'));
+  assert.equal(withFile.searchParams.get('folder'), '/d:/My Projects/X');
+  assert.deepEqual(JSON.parse(withFile.searchParams.get('payload')), [['openFile', 'vscode-remote://127.0.0.1:7811/d:/My%20Projects/X/docs/a%20b.md']]);
   assert.ok(isCodeUrl('http://127.0.0.1:7811/static/x.js', 7811));
   assert.ok(!isCodeUrl('http://127.0.0.1:7812/', 7811));
   assert.ok(!isCodeUrl('https://example.com/', 7811));
@@ -894,6 +1071,59 @@ test('whiteboardCards: waiting items of one CTO, sorted by priority, then age; p
   assert.equal(main[1].cards[2].ask.suggest, 'x');
   assert.equal(cardCount(main), 4);
   assert.deepEqual(whiteboardCards(tasks, groups, 'cto-Grp').map(g => g.project), ['G']);
+});
+
+test('whiteboardCards: a card the owner removed stays off until its question changes (#1168)', async () => {
+  const { whiteboardCards, cardQuestion } = await import('./whiteboard.js');
+  const md = (...l) => ['# x', ...l].join('\n');
+  const tasks = { A: md('- [?] #3 Newer (2026-10-03, lead-A) -> NEEDS YOU: Pick? options: x, y | suggest: x', '- [?] #1 Older (2026-10-01, lead-A)'),
+    B: md('- [?] #7 Only (2026-09-20, lead-B)') };
+  const all = whiteboardCards(tasks, [], 'cto');
+  const q3 = cardQuestion(all.find(g => g.project === 'A').cards.find(c => c.task.n === 3).task, all.find(g => g.project === 'A').cards.find(c => c.task.n === 3).ask);
+  assert.equal(q3, 'Pick?');
+  const hid = whiteboardCards(tasks, [], 'cto', [], { 'A#3': q3, 'B#7': 'Only' });
+  assert.deepEqual(hid.map(g => g.project), ['A'], 'a project with every card removed drops out');
+  assert.deepEqual(hid[0].cards.map(c => c.task.n), [1]);
+  const asked = { ...tasks, A: tasks.A.replace('Pick?', 'Pick again?') };
+  assert.deepEqual(whiteboardCards(asked, [], 'cto', [], { 'A#3': q3 }).find(g => g.project === 'A').cards.map(c => c.task.n), [1, 3], 'a new question brings it back');
+});
+
+test('whiteboardCards: a card answered from Waiting leaves it until its question changes (#2610)', async () => {
+  const { whiteboardCards, cardCount, answeredCard } = await import('./whiteboard.js');
+  const md = (...l) => ['# x', ...l].join('\n');
+  const tasks = { A: md('- [?] #1272 Pane search (2026-10-21, lead-A) -> owner trial', '  > Result: NEEDS YOU #1272 | classic view? | options: a, b | suggest: a', '- [?] #5 Other (2026-10-22, lead-A)') };
+  const card = whiteboardCards(tasks, [], 'cto')[0].cards.find(c => c.task.n === 1272);
+  const hidden = answeredCard({ 'B#2': 'kept' }, 'A', card.task, card.ask);
+  assert.deepEqual(hidden, { 'B#2': 'kept', 'A#1272': 'classic view?' });
+  const after = whiteboardCards(tasks, [], 'cto', [], hidden);
+  assert.deepEqual(after[0].cards.map(c => c.task.n), [5], 'the answered card is off, though the CTO left its mark');
+  assert.equal(cardCount(after), 1, 'and Waiting counts one fewer');
+  const asked = { A: tasks.A.replace('classic view?', 'did the trial work?') };
+  assert.deepEqual(whiteboardCards(asked, [], 'cto', [], hidden)[0].cards.map(c => c.task.n), [1272, 5], 'a new question brings it back');
+});
+
+test('ageLabel: a card\'s age in calendar days, with the time when there is one (#2703)', async () => {
+  const { ageLabel } = await import('./whiteboard.js');
+  const now = new Date(2026, 10, 9, 0, 30);
+  assert.equal(ageLabel('2026-11-09 00:05', now), 'today 00:05');
+  assert.equal(ageLabel('2026-11-08 23:50', now), '1 day, 23:50', 'yesterday evening is a day old just after midnight');
+  assert.equal(ageLabel('2026-11-02 09:10', now), '7 days, 09:10');
+  assert.equal(ageLabel('2026-11-09', now), 'today', 'a bare date keeps the age alone');
+  assert.equal(ageLabel('2026-11-08', now), '1 day');
+  assert.equal(ageLabel('2026-10-20', now), '20 days');
+  assert.equal(ageLabel('2026-03-28 10:00', new Date(2026, 2, 30, 12)), '2 days, 10:00', 'a clock change in between counts whole days');
+  assert.equal(ageLabel('2026-11-10 08:00', now), 'today 08:00', 'a date ahead of this PC reads as today');
+  assert.equal(ageLabel('', now), '');
+  assert.equal(ageLabel(undefined, now), '');
+});
+
+test('scrollAnchor: the card being typed in, else the top card on screen, holds the place on a redraw (#1734)', async () => {
+  const { scrollAnchor } = await import('./whiteboard.js');
+  const rows = [{ key: 'A#1', top: -300, bottom: -20 }, { key: 'A#2', top: -10, bottom: 280 }, { key: 'B#7', top: 300, bottom: 620 }, { key: 'B#8', top: 640, bottom: 900 }];
+  assert.deepEqual(scrollAnchor(rows, 600, 'B#7'), { key: 'B#7', offset: 300 });
+  assert.deepEqual(scrollAnchor(rows, 600), { key: 'A#2', offset: -10 }, 'nothing typed in: the card at the top');
+  assert.deepEqual(scrollAnchor(rows, 600, 'B#8').key, 'A#2', 'a box scrolled off screen does not hold the place');
+  assert.equal(scrollAnchor([], 600), null);
 });
 
 test('codesync: which desktop extensions come over, and how the server manifest points at them', () => {
@@ -987,13 +1217,13 @@ test('prompts: read a permission dialog off the screen and answer it (#152)', ()
   const rows = ['', '╭──────────────────────────────╮', '│ Bash command                 │', '│                              │',
     '│   git push origin main       │', '│   Push to remote             │', '│                              │',
     '│ Do you want to proceed?      │', '│ ❯ 1. Yes                     │',
-    "│   2. Yes, and don't ask again for git push commands in│", '│   D:\\SideProjects\\Arcade │',
+    "│   2. Yes, and don't ask again for git push commands in│", '│   D:\\Projects\\Arcade │',
     '│   3. No, and tell Claude what to do differently (esc) │', '╰──────────────────────────────╯', ''];
   const p = readPrompt(rows);
   assert.equal(p.kind, 'permission');
   assert.equal(p.ask, 'Do you want to proceed?');
   assert.equal(p.detail, 'Bash command\n\ngit push origin main\nPush to remote');
-  assert.deepEqual(p.options.map(o => o.label), ['Yes', "Yes, and don't ask again for git push commands in D:\\SideProjects\\Arcade", 'No, and tell Claude what to do differently (esc)']);
+  assert.deepEqual(p.options.map(o => o.label), ['Yes', "Yes, and don't ask again for git push commands in D:\\Projects\\Arcade", 'No, and tell Claude what to do differently (esc)']);
   assert.equal(p.at, 1); assert.equal(p.other, 3);
   assert.deepEqual(answerKeys(p, { n: 1 }), ['\r']);
   assert.deepEqual(answerKeys(p, { n: 2 }), ['\x1b[B\r']);
@@ -1017,12 +1247,47 @@ test('prompts: read a question picker and answer it, by option or typed words (#
   assert.deepEqual(answerKeys(p, { n: 1 }), ['\x1b[A\r']);
   assert.deepEqual(answerKeys(p, { n: 2 }), ['\r']);
   assert.deepEqual(answerKeys(p, { text: 'green' }), ['\x1b[B', 'green', '\r']);
+  // Claude Code's question screen with "Chat about this" under a divider (#1355): the divider
+  // is neither the question nor the end of the options.
+  const rule = '─'.repeat(90);
+  const chat = readPrompt([rule, ' ←  ☐ Look  ✔ Submit  →', '', 'Which sleeping look should we keep?', '', '❯ 1. Sofa', '     On the sofa', '  2. Bed',
+    '  3. Type something.', rule, '  4. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel']);
+  assert.equal(chat.ask, 'Which sleeping look should we keep?');
+  assert.deepEqual(chat.options.map(o => o.label), ['Sofa', 'Bed', 'Type something.', 'Chat about this']);
+  assert.equal(chat.at, 1); assert.equal(chat.other, 3);
   const plain = readPrompt([' Pick one', ' ❯ 1. A', '   2. B', ' Enter to select']);
   assert.equal(plain.other, null);
   assert.deepEqual(answerKeys(plain, { text: 'neither' }), ['\x1b', 'neither', '\r']);
 });
 
-import { livePrompt } from './prompts.js';
+import { livePrompt, askedOwner } from './prompts.js';
+
+test('askedOwner: a lead waits on the owner only while NEEDS YOU is its last report on screen (#1756)', () => {
+  const ask = '  NEEDS YOU #1756 | Which colours for the tabs? | options: a, b | suggest: a';
+  const idle = ['─── lead-FocusShell ───', '> ', '  Opus 5.5'];
+  assert.equal(askedOwner(['● Done the check.', ask, ...idle]), 'Which colours for the tabs?');
+  assert.equal(askedOwner([ask, '<cross-session-message from="cto">', 'ANSWER #1756: a', '● Building it.', ...idle]), null, 'answered');
+  assert.equal(askedOwner([ask, '  DONE #1756 | tabs fixed | tests: pass | commit: abc1234', ...idle]), null, 'reported since');
+  assert.equal(askedOwner([ask, '  WORKING #1756 | waiting on smoke, about 10 min']), null);
+  assert.equal(askedOwner(['  DONE new | Allow the scripts | tests: none | commit: fda826d', ...idle]), null);
+  assert.equal(askedOwner(idle), null, 'nothing reported');
+  assert.equal(askedOwner(['  NEEDS YOU new | Push now? | options: yes, no']), 'Push now?');
+});
+
+import { backgroundWork, backgroundText } from './prompts.js';
+test('backgroundWork: background shells come from the footer under the input box only (#2706)', () => {
+  const rule = '─'.repeat(60);
+  const box = (foot, above = []) => [...above, '✻ Brewed for 38s · done 3:04 AM · 1 shell still running', '', '─── lead-FocusShell ───', '❯ ', rule, '  Opus 5.5', foot];
+  assert.equal(backgroundWork(box('  ⏵⏵ auto mode on · 1 shell · ← 1 agent')), '1 shell', 'the smoke run of the 03:07 screenshot');
+  assert.equal(backgroundWork(box('  ⏵⏵ auto mode on · 2 shells · /tasks to see subagents · ← 1 agent')), '2 shells');
+  assert.equal(backgroundWork(box('  ⏵⏵ auto mode on · ← 1 agent')), null, 'shell ended: its line left in the conversation does not count');
+  assert.equal(backgroundWork(box('  ⏵⏵ auto mode on · 0 shells')), null);
+  assert.equal(backgroundWork(['● 1 shell still running', '  2 shells']), null, 'no input box on screen');
+  assert.equal(backgroundText('1 shell', 0), '1 shell');
+  assert.equal(backgroundText(null, 2), '2 subagents');
+  assert.equal(backgroundText('2 shells', 1), '2 shells and 1 subagent');
+  assert.equal(backgroundText(null, 0), null);
+});
 
 test('prompts: only a prompt live on the screen counts, not one answered and left in view (#191)', () => {
   const dialog = ['╭──────────────────────────╮', '│ Bash command             │', '│   npm run build          │', '│ Do you want to proceed?  │',
@@ -1211,6 +1476,9 @@ test('helper command keeps settings out, resumes by id, and refuses odd input', 
   assert.match(helperCommand({ promptFile: 'x' }), /--effort low/);
   assert.match(helperCommand({ promptFile: 'x', effort: 'medium' }), /--effort medium/);
   assert.match(helperCommand({ promptFile: 'x', effort: 'x & del' }), /--effort low/);
+  // The recorder's card step may read its screen frames, with Read only (#2185).
+  assert.match(helperCommand({ promptFile: 'x', read: 'D:\\r 1\\frames' }, 'win32'), / --tools Read --allowedTools Read --add-dir "D:\\r 1\\frames" /);
+  assert.match(helperCommand({ promptFile: 'x', read: 'a"b' }), /--tools "" /);
 });
 
 import { isSomeday, setSomeday } from './me.js';
@@ -1283,12 +1551,12 @@ test('Personal: the template seeds a new folder once, never overwriting, with a 
 });
 
 test('VS Code servers left by an FocusShell that is gone are found, a running one is not (#196)', () => {
-  const dir = 'D:\SideProjects\Atlas\state\vscode-server';
+  const dir = 'D:\Projects\Atlas\state\vscode-server';
   const procs = [
     { pid: 1, ppid: 0, created: 100, cmd: 'electron.exe app' },
     { pid: 2, ppid: 1, created: 200, cmd: `code-tunnel.exe serve-web --server-data-dir ${dir}` },
     { pid: 3, ppid: 2, created: 210, cmd: `node.exe server-main.js --server-data-dir ${dir}` },
-    { pid: 4, ppid: 99, created: 50, cmd: `node.exe server-main.js --server-data-dir d:\sideprojects\atlas\state\vscode-server` },
+    { pid: 4, ppid: 99, created: 50, cmd: `node.exe server-main.js --server-data-dir d:\projects\atlas\state\vscode-server` },
     { pid: 5, ppid: 6, created: 60, cmd: `node.exe server-main.js --server-data-dir ${dir}` },
     { pid: 6, ppid: 0, created: 900, cmd: 'notepad.exe' },
     { pid: 7, ppid: 99, created: 70, cmd: 'node.exe other.js' },
@@ -1375,6 +1643,13 @@ test('the CTO and PM skip exactly the developer guide above their folders (#349)
   assert.deepEqual(s.claudeMdExcludes, ['D:/Data/FocusShell/CLAUDE.md', 'D:/Data/FocusShell/CLAUDE.local.md', 'D:\\Data\\FocusShell\\CLAUDE.md', 'D:\\Data\\FocusShell\\CLAUDE.local.md']);
   assert.deepEqual(withSettings(managerArgs('cto', 'p.md'), 's.json').slice(-2), ['--settings', 's.json']);
   assert.deepEqual(withSettings(['a'], null), ['a']);
+  // #1272: a second setting file replaces the first, which classic view builds on.
+  const own = withSettings(managerArgs('cto', 'p.md'), 's.json');
+  assert.deepEqual(withSettings(own, 'c.json').filter(a => a === '--settings').length, 1);
+  assert.equal(settingsFileOf(withSettings(own, 'c.json')), 'c.json');
+  assert.equal(settingsFileOf(leadArgs('Habitly', 'p.md')), null);
+  assert.deepEqual(classicSettings({ claudeMdExcludes: ['x'] }), { claudeMdExcludes: ['x'], tui: 'default' });
+  assert.deepEqual(classicSettings(), { tui: 'default' });
 });
 
 test('Demo sessions run as demo-<name> without Remote Control, so they never clash with real ones (#135)', () => {
@@ -1388,7 +1663,7 @@ test('Demo sessions run as demo-<name> without Remote Control, so they never cla
   assert.match(DEMO_NOTE, /Never message a session whose name does not start with `demo-`/);
 });
 
-import { sortTodo } from './me.js';
+import { sortTodo, TODAY_SORTS } from './me.js';
 
 test('me: To do lists newest first by default, or oldest first, or by priority (#204)', () => {
   const md = [
@@ -1404,6 +1679,21 @@ test('me: To do lists newest first by default, or oldest first, or by priority (
   assert.deepEqual(groupMe(parseTasks(md), new Date(2026, 9, 6), 'oldest').todo.map(t => t.n), [1, 4, 2, 3]);
 });
 
+test('Today orders by date added, priority or due date (#1386)', () => {
+  const md = [
+    '- [ ] #1 Oldest (2026-10-01, user)', '  > Due: 2026-10-02 18:00',
+    '- [ ] #2 Newest, due last (2026-10-04, user)', '  > Due: 2026-10-05 10:00', '  > Priority: 3',
+    '- [ ] #3 Middle, due first (2026-10-02, user)', '  > Due: 2026-10-01 10:00', '  > Priority: 1',
+  ].join('\n');
+  const today = (...by) => groupMe(parseTasks(md), new Date(2026, 9, 6), 'newest', ...by).today.map(t => t.n);
+  assert.deepEqual(today(), [3, 1, 2]); // the Me page and Dashboard keep the due order
+  assert.deepEqual(today('newest'), [2, 3, 1]);
+  assert.deepEqual(today('oldest'), [1, 3, 2]);
+  assert.deepEqual(today('priority'), [3, 2, 1]);
+  assert.deepEqual(today('due'), [3, 1, 2]);
+  assert.deepEqual(Object.keys(TODAY_SORTS), ['newest', 'oldest', 'priority', 'due']);
+});
+
 test('textParts cuts an item line into text and links (#207)', () => {
   const s = String.raw`Report: D:\Work\project\docs\a.md (evidence beside it), see https://x.dev/p.`;
   const p = textParts(s);
@@ -1411,7 +1701,7 @@ test('textParts cuts an item line into text and links (#207)', () => {
   assert.deepEqual(p.map(x => !!x.link), [false, true, false, true, false]);
   assert.deepEqual(textParts('no links here'), [{ text: 'no links here' }]);
   // A path stretched past a space swallows what looked like a second link.
-  const t = String.raw`D:\Claude Setup\x.md and D:\y.md`;
+  const t = String.raw`D:\Team Notes\x.md and D:\y.md`;
   const ls = findLinks(t); ls[0] = { ...ls[0], text: t };
   assert.deepEqual(textParts(t, ls).map(x => x.text), [t]);
 });
@@ -1493,6 +1783,13 @@ import './windowguard.test.js';
 import './guard.test.js';
 import './pidfile.test.js';
 import './joined.test.js';
+import './localdata.test.js';
+import './cardview.test.js';
+import './clip.test.js';
+import './worktrees.test.js';
+import './shell.test.js';
+import './macpaths.test.js';
+import './deckpanes.test.js';
 
 import { inputDraft } from './prompts.js';
 
@@ -1505,7 +1802,7 @@ test('prompts: the owner\'s unsent draft in the input box (#243)', () => {
   // A sent prompt in the conversation, an option of a dialog, or no box at all.
   assert.equal(inputDraft(['> ANSWER #23: show it live first', '  ⎿ sent']), null);
   assert.equal(inputDraft([rule, '> 1. Yes', '  2. No']), null);
-  assert.equal(inputDraft(['D:\SideProjects\FocusShell>']), null);
+  assert.equal(inputDraft(['D:\Projects\FocusShell>']), null);
 });
 
 import { navHistory, MAX_STEPS } from './navhistory.js';
@@ -1583,18 +1880,36 @@ test('a Claude session keeps its shell after Claude exits (#353)', () => {
   const smoke = ['/k', 'echo hi'];
   assert.equal(keepShell(smoke), smoke);
 });
-test('cmd special characters in a folder name or path never run as commands (#388)', () => {
-  assert.equal(nameProblem('FocusShell'), null);
-  assert.equal(nameProblem('My Project-2.0_x'), null);
-  for (const bad of ['R&D', 'x|y', 'a^b', '50%', 'hi!', 'a(b)', 'q"t', 'a<b', 'a>b']) assert.match(nameProblem(bad), /cannot start: .*Rename the folder/, bad);
-  const line = commandLine(keepShell(leadArgs('X', 'C:\\Users\\A&B\\AppData\\deck\\state\\prompts\\lead-X.md')));
-  assert.match(line, /^\/k claude -n lead-X /);
-  assert.ok(line.includes('--append-system-prompt-file "C:\\Users\\A&B\\AppData\\deck\\state\\prompts\\lead-X.md" & title focusshell-claude-ended & echo'), line);
-  assert.equal(commandLine(['/c', 'claude', '--add-dir', 'D:\\a b\\']), '/c claude --add-dir "D:\\a b\\\\"');
-  assert.throws(() => commandLine(['/c', 'claude', '--settings', 'C:\\Users\\50%off\\s.json']), /holds %/);
+test('a folder name or path with cmd special characters starts, and nothing in it runs (#388, #1126)', () => {
+  for (const ok of ['FocusShell', 'My Project-2.0_x', 'R&D', 'x|y', 'a^b', '50%', 'hi!', 'a(b)', 'New folder - Copy (4)']) assert.equal(nameProblem(ok), null, ok);
+  assert.match(nameProblem('q"t', 'win32'), /cannot start: .*Windows does not allow/);
+  assert.equal(nameProblem('q"t', 'darwin'), null, 'a Mac passes it as it is (#2562)');
+  const { line, env } = commandLine(keepShell(leadArgs('a & b', 'C:\\Users\\A&B\\AppData\\deck\\state\\prompts\\lead-a & b.md')));
+  assert.match(line, /^\/V:ON \/k claude -n "!FS_A3!" --remote-control "!FS_A5!" /);
+  assert.equal(env.FS_A3, 'lead-a & b');
+  assert.ok(line.includes('& title focusshell-claude-ended & echo'), 'keepShell\'s own separators stay bare');
+  assert.equal(Object.values(env).some(v => v === '&'), false);
+  assert.equal(commandLine(['/c', 'claude', '--add-dir', 'D:\\a b\\']).env.FS_A3, 'D:\\a b\\\\', 'a trailing backslash is doubled');
+  assert.equal(commandLine(['/c', 'claude', '--settings', 'C:\\Users\\50%off\\s.json']).env.FS_A3, 'C:\\Users\\50%off\\s.json');
   assert.throws(() => commandLine(['/c', 'claude', '--settings', 'C:\\q"t\\s.json']), /holds "/);
-  assert.equal(spawnArgs(['/k', 'echo smoke']).length, 2, 'not a Claude session: left to node-pty');
-  assert.equal(typeof spawnArgs(['/c', 'claude', '-n', 'pm']), 'string');
+  assert.deepEqual(spawnArgs(['/k', 'echo smoke']), { line: ['/k', 'echo smoke'], env: {} }, 'not a Claude session: left to node-pty');
+  assert.equal(typeof spawnArgs(['/c', 'claude', '-n', 'pm']).line, 'string');
+});
+test('cmd passes every special folder name to the program as it is (#1126)', { skip: process.platform !== 'win32' }, () => {
+  // The same line a session gets, with node in place of claude printing what it received.
+  const names = ['New folder - Copy (4)', 'a & b', 'x^y', '50%', 'hey!', 'R&D | dir', '%PATH%', '!PATH!', 'C:\\x\\', 'two  spaces'];
+  const { line, env } = commandLine(['/c', 'node', '-e', 'console.log(JSON.stringify(process.argv.slice(1)))', ...names]);
+  const out = execFileSync('cmd.exe', [line], { env: { ...process.env, ...env }, windowsVerbatimArguments: true, encoding: 'utf8', windowsHide: true });
+  assert.deepEqual(JSON.parse(out), names);
+  // And a session starts in a folder of each name, given its lead name, with nothing else run.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-names-'));
+  for (const n of names.filter(x => !/[\\/|<>:"*?]/.test(x))) { // only names Windows allows for a folder
+    const dir = path.join(root, n); fs.mkdirSync(dir);
+    const c = commandLine(keepShell(['/c', 'node', '-e', 'console.log(JSON.stringify([process.cwd(), process.argv[1]]))', `lead-${n}`]));
+    const got = execFileSync('cmd.exe', [c.line.replace('/k', '/c')], { cwd: dir, env: { ...process.env, ...c.env }, windowsVerbatimArguments: true, encoding: 'utf8', windowsHide: true });
+    assert.deepEqual(JSON.parse(got.split('\n')[0]), [dir, `lead-${n}`], n);
+  }
+  fs.rmSync(root, { recursive: true, force: true });
 });
 test('cmd\'s title tells when Claude ended in a pane and when it came back (#353)', () => {
   const t = s => `\x1b]0;${s}\x1b\\`;
@@ -1628,12 +1943,13 @@ test('Claude Code is found as claude.exe or claude.cmd, and a missing tool shows
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'req-')), a = path.join(tmp, 'a'), b = path.join(tmp, 'b');
   fs.mkdirSync(a); fs.mkdirSync(b);
   fs.writeFileSync(path.join(a, 'claude.exe'), ''); fs.writeFileSync(path.join(b, 'node.cmd'), ''); fs.writeFileSync(path.join(b, 'claude'), '');
-  const env = { PATH: [a, b].join(path.delimiter), PATHEXT: '.COM;.EXE;.BAT;.CMD' };
-  assert.equal(onPath('claude', env), true);
-  assert.equal(onPath('node', env), true);
-  assert.equal(onPath('claude', { ...env, PATH: b }), false, 'an extensionless npm shell script is not something cmd runs');
-  assert.equal(onPath('claude', { PATH: `"${a}"` }), true, 'quoted PATH folder, default PATHEXT');
-  assert.equal(onPath('git', env), false);
+  // Windows' rule, on any system (#2562: a Mac's is in shell.test.js).
+  const env = { PATH: [a, b].join(';'), PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+  assert.equal(onPath('claude', env, 'win32'), true);
+  assert.equal(onPath('node', env, 'win32'), true);
+  assert.equal(onPath('claude', { ...env, PATH: b }, 'win32'), false, 'an extensionless npm shell script is not something cmd runs');
+  assert.equal(onPath('claude', { PATH: `"${a}"` }, 'win32'), true, 'quoted PATH folder, default PATHEXT');
+  assert.equal(onPath('git', env, 'win32'), false);
   assert.deepEqual(missingTools(() => true), []);
   const miss = missingTools(t => t !== 'node');
   assert.deepEqual(miss.map(m => m.name), ['Node.js']);

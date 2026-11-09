@@ -3,7 +3,11 @@
 // the main side sends. The button (or the shortcut) starts a recording, stops it, or opens the
 // screen of the recording that is waiting.
 import { buttonFor } from './lib/session.js';
+import { micLevel, micLit } from './lib/area.js';
 import { reviewScreen, shapeOf } from './screens/review.js';
+import { videosView } from './screens/videos.js';
+import { micError } from './lib/permissions.js';
+import { MAC } from '../../lib/platform.js';
 
 const STEP_LABEL = { audio: 'Pulling out the sound', transcript: 'Transcribing with Whisper', items: 'Finding the items in what you said', screenshots: 'Taking the screenshots' };
 const MIME = 'video/webm;codecs=vp8,opus';
@@ -20,7 +24,7 @@ export function mount(ui) {
   const paint = () => {
     const s = st.session, b = buttonFor(s, Date.now());
     ui.button.set(b.state, b.state === 'attention' && s && seen === s.id ? '' : b.label);
-    ui.button.el.title = { active: 'Stop recording', busy: `Working in the background: ${(s && STEP_LABEL[s.step]) || 'processing'}. Click for the steps`, attention: 'The recording is ready to review' }[b.state] || 'Record the screen';
+    ui.button.el.dataset.tip = { active: 'Stop recording', busy: `Working in the background: ${(s && STEP_LABEL[s.step]) || 'processing'}. Click for the steps`, attention: 'The recording is ready to review' }[b.state] || 'Record the screen';
     if (b.state === 'active' && !tick) tick = setInterval(paint, 1000);
     if (b.state !== 'active' && tick) { clearInterval(tick); tick = null; }
   };
@@ -30,10 +34,61 @@ export function mount(ui) {
     paint();
     dropTerm();
     const s = st.session;
-    if (screen && (!s || s.state === 'recording')) { screen.close(); return; }
-    // A text edit coming back changes nothing on screen: redrawing would lose the caret.
-    const sh = shapeOf(st);
-    if (screen && sh !== shape) { shape = sh; screen.setBody(body()); }
+    if (screen && s && s.state === 'recording') { screen.close(); return; }
+    if (mode === 'review' && !(s && (s.state === 'review' || s.state === 'sending'))) mode = 'list';
+    redraw();
+  };
+
+  // The Recorded videos modal (#1482): the list and preview, or the open recording's card review.
+  // A text edit coming back changes nothing on screen: redrawing would lose the caret.
+  let mode = 'list', sel = null, rows = [];
+  const thumbs = new Map(); // recording id: data URL, or null while it loads or when there is none
+  async function redraw(force = false) {
+    if (!screen) return;
+    if (mode === 'review') {
+      const sh = 'review' + shapeOf(st);
+      if (force || sh !== shape) { shape = sh; screen.setBody(body()); }
+      return;
+    }
+    const got = await ui.invoke('list');
+    if (!screen || mode !== 'list') return;
+    rows = Array.isArray(got) ? got : [];
+    const sh = 'list' + JSON.stringify([sel, rows, shapeOf(st), (st.session && st.session.done) || null, [...thumbs.entries()].map(([k, v]) => [k, !!v])]);
+    if (!force && sh === shape) return;
+    shape = sh;
+    screen.setBody(videosView({ ui, rows, sel, session: st.session, steps: st.steps, thumbs, pick: id => { sel = id; redraw(); }, on: videoActs }));
+    const want = rows.find(r => r.id === sel) || rows[0];
+    if (want && want.video && !thumbs.has(want.id)) {
+      thumbs.set(want.id, null);
+      ui.invoke('thumb', want.id).then(url => { if (url) { thumbs.set(want.id, url); redraw(); } });
+    }
+  }
+  const videoActs = {
+    review: () => { mode = 'review'; const s = st.session; if (s) { seen = s.id; paint(); } redraw(true); },
+    open: (id, what) => ui.invoke('openPast', id, what),
+    async regenerate(id) {
+      const r = await ui.invoke('regenerate', id);
+      if (!r || r.error) ui.toast(`Could not regenerate: ${(r && r.error) || 'no answer'}`, true);
+      else { sel = id; ui.toast('Reading the transcript again. The new cards replace these ones and wait for your review'); }
+    },
+    async talk(id) {
+      const line = await ui.invoke('talk', id);
+      if (!line) { ui.toast('That recording is gone', true); return; }
+      if (await ui.cto(line)) ui.toast('Sent to the CTO. Ask it about the recording in its pane');
+      else ui.toast('The CTO is not running, so the recording was not sent', true);
+    },
+    async remove(r) {
+      if (r.current) { await discard(); return; }
+      const ok = await ui.kit.confirm({ title: 'Delete this recording?', text: 'Its video, sound and transcript are deleted. Board items keep their screenshots.', ok: 'Delete', danger: true });
+      if (!ok) return;
+      const res = await ui.invoke('deleteOne', r.id);
+      if (!res || res.error) { ui.toast(`Could not delete: ${(res && res.error) || 'no answer'}`, true); return; }
+      thumbs.delete(r.id);
+      if (sel === r.id) sel = null;
+      redraw();
+    },
+    retry: () => ui.invoke('retry'),
+    discard: () => discard(),
   };
 
   // The display's track cut down to the marked area (#376). The frames are cropped as they
@@ -67,8 +122,8 @@ export function mount(ui) {
       const paintCv = setInterval(() => { g.fillStyle = `hsl(${(n++ * 40) % 360} 60% 40%)`; g.fillRect(0, 0, 320, 180); }, 200);
       const ac = new AudioContext(), osc = ac.createOscillator(), dest = ac.createMediaStreamDestination();
       osc.connect(dest); osc.start();
-      const v = cv.captureStream(5);
-      return { stream: new MediaStream([...v.getVideoTracks(), ...dest.stream.getAudioTracks()]), end: () => { clearInterval(paintCv); osc.stop(); ac.close(); } };
+      const v = cv.captureStream(5), meter = micMeter(dest.stream);
+      return { stream: new MediaStream([...v.getVideoTracks(), ...dest.stream.getAudioTracks()]), end: () => { meter(); clearInterval(paintCv); osc.stop(); ac.close(); } };
     }
     const video = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: {
       chromeMediaSource: 'desktop', chromeMediaSourceId: source.id, maxFrameRate: 5, maxWidth: source.width, maxHeight: source.height } } });
@@ -82,10 +137,27 @@ export function mount(ui) {
       try { voice = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch (e) {
         area.end();
         for (const t of video.getTracks()) t.stop();
-        throw new Error(`the mic could not be opened (${e.message})`);
+        throw new Error(micError(e, MAC));
       }
     }
-    return { stream: new MediaStream([area.track, ...(voice ? voice.getAudioTracks() : [])]), end: area.end };
+    const meter = voice ? micMeter(voice) : () => {};
+    return { stream: new MediaStream([area.track, ...(voice ? voice.getAudioTracks() : [])]), end: () => { meter(); area.end(); } };
+  }
+
+  // The mic icon on the floating bar (#1792): lit while the mic hears the owner, dim in silence,
+  // crossed out while Windows has the mic muted. Only a change is sent. Returns its stop.
+  function micMeter(stream) {
+    const ac = new AudioContext(), an = ac.createAnalyser(), buf = new Float32Array(1024), track = stream.getAudioTracks()[0];
+    an.fftSize = buf.length;
+    ac.createMediaStreamSource(stream).connect(an);
+    let lit = false, said = null;
+    const tick = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      lit = micLit(micLevel(buf), lit);
+      const now = track && track.muted ? 'muted' : lit ? 'live' : 'quiet';
+      if (now !== said) { said = now; ui.invoke('voice', now); }
+    }, 100);
+    return () => { clearInterval(tick); ac.close(); };
   }
 
   async function start() {
@@ -141,24 +213,15 @@ export function mount(ui) {
   // ---------- screens ----------
   const btn = (label, onclick, cls = '') => h('button', { class: 'btn ' + cls, onclick }, label);
 
+  // The open recording's card review, reached from its Review cards button (#1482).
   function body() {
     const s = st.session;
     if (!s) return h('p', {}, 'No recording.');
-    if (s.state === 'processing') {
-      return h('div', { class: 'recwrap' },
-        h('ol', { class: 'recsteps' }, (st.steps || []).map(k => h('li', { class: s.done.includes(k) ? 'ok' : s.step === k ? 'now' : '' },
-          STEP_LABEL[k] || k, s.step === k ? ' ...' : ''))),
-        h('p', { class: 'sub' }, 'This can take a few minutes for a long recording. You can close this and keep working.'));
-    }
-    if (s.state === 'failed') {
-      return h('div', { class: 'recwrap' },
-        h('p', { class: 'plugerr' }, `${STEP_LABEL[s.step] || s.step} failed: ${s.error}`),
-        ui.kit.buttonRow([btn('Discard', discard), btn('Try again', () => ui.invoke('retry'), 'primary')]));
-    }
     // The review: the header row, then the cards, and the brainstorm beside them when open.
     const busy = s.state === 'sending', open = (s.cards || []).filter(c => c.status === 'open');
     const talking = !!st.brainstormId, marked = (s.cards || []).some(c => c.mark && c.mark !== 'unchanged' && c.status !== 'accepted');
     const bar = [
+      btn('Back to recordings', () => { mode = 'list'; redraw(true); }, 'ghost recback'),
       btn('Open transcript', () => ui.invoke('open', 'transcript'), 'ghost'),
       btn('Open video', () => ui.invoke('open', 'video'), 'ghost'),
       open.length && !talking && ui.terminal ? btn('Brainstorm with CTO', () => brainstorm('cto'), 'ghost') : null,
@@ -213,7 +276,8 @@ export function mount(ui) {
     }
     const added = `${r.placed} ${r.placed === 1 ? 'card' : 'cards'} added to the boards`;
     if (!send) { ui.toast(added); return; }
-    if (!r.cto) { ui.toast(`${added}. Nothing went to the CTO: reminders and Me items stay with you`); return; }
+    // It stays until closed: a short toast here was missed and the cards never reached the CTO (#2185).
+    if (!r.cto) { ui.toast(`${added}. ${r.why || 'Nothing sent to the CTO.'}`, true, { label: 'OK', run() {} }); return; }
     if (!(await ui.cto(r.cto))) ui.toast(`${added}, but the CTO is not running, so it was not told`, true);
   }
 
@@ -223,12 +287,18 @@ export function mount(ui) {
     ui.kit.modal({ title: 'Screenshot', sub: p.split(/[\\/]/).pop(), body: img });
   }
 
-  function open() {
+  // Opens Recorded videos on the open recording, else on the newest. A review with no card left
+  // to decide is finished first, so it lists as done.
+  async function open() {
     if (screen) return;
     const s = st.session;
-    if (s && s.state === 'review') { seen = s.id; paint(); }
-    shape = shapeOf(st);
-    screen = ui.kit.modal({ title: 'Recording', sub: s ? s.id : '', body: body(), onClose: () => { screen = null; } });
+    if (s && s.state === 'review' && !(s.cards || []).some(c => c.status === 'open')) await ui.invoke('done');
+    else if (s && s.state === 'review') { seen = s.id; paint(); }
+    if (screen) return;
+    mode = 'list'; sel = s ? s.id : null; shape = '';
+    screen = ui.kit.modal({ title: 'Recorded videos', body: h('p', { class: 'sub' }, 'Loading...'), onClose: () => { screen = null; } });
+    screen.el.classList.add('recvmodal');
+    redraw(true);
   }
 
   async function discard() {
@@ -270,6 +340,7 @@ export function mount(ui) {
     const fill = () => ui.invoke('list').then(list => {
       const rows = Array.isArray(list) ? list : [];
       const head = h('div', { class: 'recpasthd' }, h('h4', {}, 'Recordings'),
+        rows.length ? btn([ui.icon('play'), 'Recorded videos'], () => { close(); open(); }, 'recopen recvideos') : null,
         rows.some(r => !r.current) ? btn([ui.icon('trash'), 'Delete all recordings'], () => deleteAll(fill), 'recopen recdelall') : null);
       box.replaceChildren(head, ...(rows.length ? rows.map(r => pastRow(r, close)) : [h('p', { class: 'sub' }, 'No recordings yet.')]));
     });

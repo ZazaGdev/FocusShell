@@ -52,7 +52,21 @@ export async function openCode(name, deck, rerender, file, sessionId) {
   st.log = step => log(deck, name, st, step);
   st.deck = deck;
   open.set(name, st);
+  // The first time, the pane asks before VS Code downloads its server and the extensions are
+  // copied (#1124); Yes starts it, as every later pane does at once.
+  const ask = await deck.codeConsent().catch(() => ({ needed: false }));
+  if (open.get(name) !== st) return;
+  if (ask && ask.needed) { st.ask = ask; st.go = () => startView(name, st, deck, file, sessionId); rerender(); return; }
   await startView(name, st, deck, file, sessionId);
+}
+
+// Yes on the first pane's question (#1124): remembered, then this pane starts.
+export async function agreeCode(name) {
+  const st = open.get(name);
+  if (!st || !st.ask) return;
+  await st.deck.codeAgree();
+  st.ask = null; st.rerender();
+  st.go();
 }
 
 // One try at showing VS Code in st, with its watchdog.
@@ -168,8 +182,17 @@ export function codePane(name, { h, icon, onClose, onExternal, onRetry }) {
   // The requirements are checked once a pane shows them: open in the error, or unfolded.
   const getReq = () => { if (!st.reqAsked && st.deck) { st.reqAsked = true; st.deck.codeRequirements().then(r => { st.req = r; if (open.get(name) === st) st.rerender(); }, () => {}); } };
   if (st.error) getReq();
-  const slot = h('div', { class: 'codeslot', 'data-code': name },
-    codeWait({ h, name, st, server: serverSteps, req: st.req || null, tries: TRIES, onRetry, onExternal, onGet: getReq }));
+  const mb = n => (n >= 1024 ? `${(n / 1024).toFixed(1)} GB` : `${n} MB`);
+  const slot = h('div', { class: 'codeslot', 'data-code': name }, st.ask
+    // The first pane's question (#1124), with the sizes measured on this PC.
+    ? h('div', { class: 'codewait codeask' },
+      h('b', {}, 'Set up VS Code in FocusShell?'),
+      h('p', {}, `VS Code downloads its web server from Microsoft, about ${mb(st.ask.serverMB)} on disk, and FocusShell copies your VS Code settings and ${st.ask.extCount} extensions (${mb(st.ask.extMB)}) into ${st.ask.to}. This happens once; after that the Code pane opens straight away and stays in step with your VS Code.`),
+      h('div', { class: 'bempty-acts' },
+        h('button', { class: 'btn primary', 'data-act': 'agree', onclick: () => agreeCode(name) }, 'Yes, download'),
+        h('button', { class: 'btn', onclick: onClose }, 'Not now'),
+        h('button', { class: 'btn', onclick: onExternal }, 'Open in VS Code')))
+    : codeWait({ h, name, st, server: serverSteps, req: st.req || null, tries: TRIES, onRetry, onExternal, onGet: getReq }));
   watch.observe(slot);
   return h('div', { class: 'pane codepane' },
     h('div', { class: 'ph' }, icon('code'), h('span', { class: 'pn' }, 'Code'), h('span', { class: 'lbl' }, name),

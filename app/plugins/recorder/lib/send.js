@@ -25,6 +25,14 @@ export function writesFor(cards, { transcript }) {
   });
 }
 
+// Talk to agent (#1482): the line that hands one recording to the main CTO to discuss, with no
+// work attached. r: { title, transcript (path or null), video, cards: [{ title, placed }] }.
+export function talkLine(r) {
+  const cards = (r.cards || []).map(c => (c.placed && c.placed.n != null ? `${c.placed.board} #${c.placed.n}: ${c.title}` : c.title));
+  return [`RECORDING TALK: ${r.title}`, r.transcript ? `transcript: ${r.transcript}` : 'no transcript', `video: ${r.video}`,
+    cards.length ? `cards: ${cards.join('; ')}` : 'no cards'].join(' | ');
+}
+
 // The line for the main CTO, or null when every placed card is the owner's own (Me).
 // placed: cards with placed { board, n }.
 export function ctoLine(placed, { transcript }) {
@@ -34,4 +42,10 @@ export function ctoLine(placed, { transcript }) {
     return `${c.placed.board} #${c.placed.n}: ${c.title}${shots}`;
   });
   return parts.length ? `RECORDING: ${transcript} | ${parts.join(' | ')}` : null;
+}
+
+// Why a send for the CTO sent nothing (#2185): every card it placed went on Me.
+export function noCtoReason(placed) {
+  const n = (placed || []).length;
+  return `Nothing sent to the CTO: ${n === 1 ? 'the card' : `all ${n} cards`} went on Me, and Me items never go to the CTO. Set a card's project before accepting it to send it.`;
 }

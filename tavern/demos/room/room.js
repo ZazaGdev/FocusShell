@@ -92,7 +92,7 @@ let asked = 0;
 const ask = h('button', {}, 'New question');
 ask.onclick = () => { asked++; NOTICES.push({ id: 'focus-shell', kind: 'item', label: `FocusShell #${300 + asked} · NEEDS YOU`, q: 'A new question for the cat to notice?', options: ['yes', 'no'] }); recast(); };
 const door = h('button', {}, 'Send a lead out');
-door.onclick = () => { const out = !away.has('video-editor'); if (out) away.add('video-editor'); else away.delete('video-editor'); door.textContent = out ? 'CTO calls the lead in' : 'Send a lead out'; recast(); };
+door.onclick = () => { const out = !away.has('director'); if (out) away.add('director'); else away.delete('director'); door.textContent = out ? 'CTO calls the lead in' : 'Send a lead out'; recast(); };
 // A drinking robot's lead gets a task (#312): it takes its mug back to the counter, then works.
 const task = h('button', {}, 'Give a lead a task');
 task.onclick = () => { const p = [...scene.guests.values()].find(g => g.state === 'idle' && g.where === 'seat' && !g.next && !g.hold && ROBOTS.some(([n]) => n === g.id)); if (p) { tasked.add(p.id); recast(); } };

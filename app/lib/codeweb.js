@@ -57,6 +57,39 @@ export function isCodeUrl(url, port) {
   } catch { return false; }
 }
 
+// VS Code on a Mac (#2562): the app in /Applications (or ~/Applications), else wherever the
+// `code` command on PATH leads (a bundle left in Downloads, or renamed); its `code` command for
+// opening folders and `code-tunnel` for the Code pane, both inside the bundle.
+// { cli, tunnel } or null; exists(path) says what is on disk, realpath follows a link.
+export function macCodePaths(home, exists, pathDirs = [], realpath = p => p) {
+  for (const base of ['/Applications', `${String(home).replace(/\/+$/, '')}/Applications`]) {
+    const bin = `${base}/Visual Studio Code.app/Contents/Resources/app/bin`;
+    if (exists(`${bin}/code`)) return { cli: `${bin}/code`, tunnel: `${bin}/code-tunnel` };
+  }
+  for (const d of pathDirs) {
+    if (!d || !exists(`${d.replace(/\/+$/, '')}/code`)) continue;
+    const real = realpath(`${d.replace(/\/+$/, '')}/code`);
+    if (/\/Contents\/Resources\/app\/bin\/code$/.test(real)) return { cli: real, tunnel: real.replace(/code$/, 'code-tunnel') };
+  }
+  return null;
+}
+
+// A Mac's process list from `ps -axo pid=,ppid=,etime=,command=` as orphanServers reads it:
+// etime is [[dd-]hh:]mm:ss since the start. A process whose parent died is handed to launchd
+// (pid 1), so a parent of 1 counts as gone.
+export const PS_ARGS = ['-axo', 'pid=,ppid=,etime=,command='];
+export function parsePs(text, now = Date.now()) {
+  const out = [];
+  for (const line of String(text || '').split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s+(.*)$/);
+    if (!m) continue;
+    const secs = ((Number(m[3] || 0) * 24 + Number(m[4] || 0)) * 60 + Number(m[5])) * 60 + Number(m[6]);
+    const ppid = Number(m[2]);
+    out.push({ pid: Number(m[1]), ppid: ppid === 1 ? 0 : ppid, created: now - secs * 1000, cmd: m[7] });
+  }
+  return out;
+}
+
 // Servers left running by an FocusShell that ended without stopping them (#196): processes
 // started for our server data folder whose parent is gone, or is a newer process that took
 // a dead parent's id. procs: [{ pid, ppid, created, cmd }], created in ms.

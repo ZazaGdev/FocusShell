@@ -1,15 +1,18 @@
 // FocusShell window: Home dashboard, session tabs, snap layouts, voice.
-import { parseTasks, projectState, optionsOf, parseNotes, splitTaskNotes } from '../lib/tasks.js';
-import { LAYOUTS, SINGLE_WITH_MANAGER, slotCount, autoLayout, splitWith } from '../lib/layouts.js';
+import { parseTasks, optionsOf, parseNotes, splitTaskNotes } from '../lib/tasks.js';
+import { LAYOUTS, SINGLE_WITH_MANAGER, slotCount, autoLayout } from '../lib/layouts.js';
 import * as T from './terminal.js';
 import * as C from './code.js';
 import { renderProject } from './project.js';
 import { touchRecent, recentList, lastSession } from '../lib/presets.js';
-import { MAIN, PM, mgrId, isMgr, groupOfMgr, groupOf, managerFor, findGroup, normalizeGroups, mainViewFor, addToGroup, removeFromGroup, deleteGroup, renameGroup, suggestName, movesInto, groupName, viewFor, tabTargets, tabMenu } from '../lib/groups.js';
+import { MAIN, PM, mgrId, isMgr, groupOfMgr, groupOf, managerFor, findGroup, normalizeGroups, renameGroup, suggestName, groupName, viewFor } from '../lib/groups.js';
 import { groupsSection } from './groups.js';
-import { openTask, closeTask, openCard, refreshTask, talkIntoCard } from './task-detail.js';
-import { openWhiteboard, closeWhiteboard, refreshWhiteboard, talkIntoWhiteboard, waitingCount, whiteboardOpen } from './whiteboard.js';
-import { talkIntoHelper, helperOpen } from './helper.js';
+import { groupActions } from './group-actions.js';
+import { windowKeys } from './keys.js';
+import { titleBar } from './tabs.js';
+import { panes } from './panes.js';
+import { openTask, closeTask, openCard, refreshTask } from './task-detail.js';
+import { openWhiteboard, closeWhiteboard, refreshWhiteboard, waitingCount, setupSummaries, wantSummaries } from './whiteboard.js';
 import { boardSection, ownerKind, isTest } from './board.js';
 import { renderDash, revealMe, ME } from './home.js';
 import { renderSide, renderPmDrawer } from './sidebar.js';
@@ -21,27 +24,22 @@ import { openTour, TOUR } from './tour.js';
 import { setupUpdates, checkUpdates, updateInfo } from './update.js';
 import { startPlugins, pluginSection } from './plugins.js';
 import { normalizeSettings } from '../lib/settings.js';
-import { secondId, secondOf, sessionName } from '../lib/sessions.js';
-import { paneColour } from '../lib/projects.js';
+import { extraId, extraOf, projectOf, nextLead, EXTRA_LEADS, MAX_LEADS, sessionName } from '../lib/sessions.js';
 import { demoRobots } from '../lib/tavern/agents.js';
 import { h, icon, toast } from './dom.js';
 import { smoke } from './smoke.js';
-import { openSketch } from './sketch.js';
-import { openTabMenu } from './tabmenu.js';
 import { renderMe } from './me.js';
 import { waitingWatch } from './waiting.js';
 import { showMissing } from './requirements.js';
-import { setupMissed, missedButton, refreshMissed, closeMissed } from './missed.js';
+import { setupMissed, refreshMissed, closeMissed } from './missed.js';
 import { ctoRequests } from './cto-requests.js';
-import { setupStatus, statusButton } from './status.js';
-import { leadTask } from '../lib/status.js';
+import { setupStatus } from './status.js';
+import { leadTask, leadDot, outputStep, printing } from '../lib/status.js';
 import { setupFocusLog, focusLog } from './focuslog.js';
-import { miniTree, dragGutter } from './layout-ui.js';
-import { typeLine, deliver } from './cto-line.js';
-import { catchUp } from './catchup.js';
-import { openSearch, searchKey } from './search.js';
+import { miniTree } from './layout-ui.js';
+import { typeLine, deliver, drafting } from './cto-line.js';
 import { tavernButton, setTavernOn } from './tavern/tavern.js';
-import { startNav, noteSoon, navKey } from './nav.js';
+import { startNav, noteSoon } from './nav.js';
 
 const deck = window.deck;
 
@@ -70,43 +68,48 @@ let smokeHold = {};            // boards a smoke run keeps in memory (#315, #319
 let smokePick;                 // the folder a smoke run connects from the empty Board, with no dialog (#1061)
 const collapsed = new Set();  // project panes folded down to their title bar in a split
 const lastOutput = new Map(); // id -> ms
-const showSecond = new Set(); // projects whose pane shows the second lead
-const secondWt = new Map();   // project -> whether its second lead has a worktree
+const outputRuns = new Map(); // id -> { runStart, last }, its current stretch of output (#2706)
+const showLead = new Map();   // project -> which of its leads (2 to 5) its pane shows; none: the first
+const leadWt = new Map();     // extra lead session id -> whether it has its own worktree
+let leadSplits = {};          // project -> lead numbers its pane shows side by side when it is alone on screen (#1554)
 
 const proj = n => projects.find(p => p.name === n);
 const tasksOf = n => parseTasks(tasksMd[n] || '');
-const isActive = id => Date.now() - (lastOutput.get(id) || 0) < 3000;
+// Working: printing steadily, as Claude's spinner does for a whole turn; a recap or redraw on
+// an idle pane is a short burst and leaves it idle (#2706).
+const isActive = id => printing(outputRuns.get(id), Date.now());
 const curMgr = () => mgrId(ctx);
 const mgrName = id => id === MAIN ? 'CTO' : `${groupOfMgr(id)} CTO`;
 
+// A lead's dot says what its own pane is doing, never what its board holds (#1756).
+const dotOf = id => leadDot({ exited: T.isExited(id), prompt: waitingOn.get(id), asked: askedOn.get(id), active: isActive(id), back: backOn.get(id) });
 function stateOf(id) {
-  if (T.isExited(id)) return 'ended';
-  if (waitingOn.has(id)) return 'needs';
-  if (isMgr(id) || id === PM || secondOf(id)) return isActive(id) ? 'working' : 'idle';
-  const s = projectState(tasksOf(id));
-  return s === 'idle' && isActive(id) ? 'working' : s;
+  if (isMgr(id) || id === PM) return T.isExited(id) ? 'ended' : isActive(id) ? 'working' : 'idle';
+  return dotOf(id).state;
 }
+const tipOf = id => (isMgr(id) || id === PM ? '' : dotOf(id).tip);
 function labelOf(id) {
   if (T.isExited(id)) return 'Session ended';
   if (isMgr(id)) return ''; // #383: room in the CTO pane's header for its buttons
   if (id === PM) return 'talk here';
   if (waitingOn.has(id)) return 'Waiting on your approval';
-  if (secondOf(id)) return isActive(id) ? 'Busy' : 'Idle';
+  if (askedOn.has(id) && !isActive(id)) return 'Waiting on your answer';
+  const busy = isActive(id) || backOn.has(id); // as its dot says (#2706)
+  if (extraOf(id)) return busy ? 'Busy' : 'Idle';
   const ts = tasksOf(id);
   const pick = m => ts.find(t => t.mark === m);
-  const q = pick('?'), b = pick('!'), w = pick('~');
-  if (q) return `Needs you on #${q.n}`;
+  const b = pick('!'), w = pick('~');
   if (b) return `Blocked on #${b.n}`;
   if (w) return `Working on #${w.n}`;
   if (!started.has(id)) return 'No session';
-  return isActive(id) ? 'Busy' : 'Idle';
+  return busy ? 'Busy' : 'Idle';
 }
-const dot = id => h('span', { class: 'st-dot ' + stateOf(id) + (isActive(id) ? ' active' : ''), 'data-dot': id });
+const dot = id => h('span', { class: 'st-dot ' + stateOf(id) + (isActive(id) ? ' active' : ''), 'data-dot': id, title: tipOf(id) });
 
 // The app starts empty, so the last set of tabs is kept as "Last session" rather than reopened.
 function saveUi() {
   const snap = openTabs.length ? { openTabs, layoutId } : prevSession && { openTabs: prevSession.projects, layoutId: prevSession.layoutId };
-  deck.saveUi({ view, single, splitSet, layoutId, groupViews, mainView, homeLayout, lastSession: snap || null });
+  deck.saveUi({ view, single, splitSet, layoutId, groupViews, mainView, homeLayout, leadSplits, lastSession: snap || null });
 }
 function saveGroups(next) { groups = next; deck.saveGroups(groups); }
 function saveSettings(next) { settings = normalizeSettings(next); deck.saveSettings(settings); if (!settings.showMissed) closeMissed(); setTavernOn(settings.showTavern); applyPrefs(settings, T.refitAll); render(); }
@@ -130,25 +133,41 @@ async function openTab(name, show = true) {
   if (show) { view = 'single'; single = name; }
   render();
 }
-// A project's second lead shows in the same pane, switched from the pane header. Closing
-// it also removes its worktree, if it had one and its work is merged; the note says how.
-async function openSecond(name, worktree) {
-  if (!openTabs.includes(name)) await openTab(name, false);
-  secondWt.set(name, worktree);
-  if (!(await ensureSession(secondId(name), { worktree }))) return;
-  showSecond.add(name); render();
+// A project's extra leads (2 to 5, #1485) show in the same pane, switched from the pane header.
+// Closing one also removes its worktree, if it had one and its work is merged; the note says how.
+const extrasOf = name => EXTRA_LEADS.filter(n => started.has(extraId(name, n)));
+// The session a project's pane shows: the lead picked in its header, else the first.
+const shownLead = name => { const n = showLead.get(name); return n && started.has(extraId(name, n)) ? extraId(name, n) : name; };
+const showN = (name, n) => { if (n > 1) showLead.set(name, n); else showLead.delete(name); };
+// The leads a pane shows side by side (#1554): its saved split, only while the project is alone
+// on screen and two or more of those leads run; otherwise null and the pane shows one lead.
+function splitLeads(name) {
+  const ids = (leadSplits[name] || []).map(n => (n === 1 ? name : extraId(name, n))).filter(id => started.has(id));
+  return view === 'single' && single === name && ids.length >= 2 ? ids : null;
 }
-async function closeSecond(name) {
-  const id = secondId(name), note = await deck.kill(id);
-  started.delete(id); T.dispose(id); showSecond.delete(name); secondWt.delete(name); paneModel.delete(id);
+async function openExtra(name, n, worktree, show = true) {
+  n = n || nextLead(k => started.has(extraId(name, k)));
+  if (!n) { toast(`${name} already runs ${MAX_LEADS} leads, the most a project can have`, true); return; }
+  if (!openTabs.includes(name)) await openTab(name, false);
+  const id = extraId(name, n);
+  leadWt.set(id, worktree);
+  if (!(await ensureSession(id, { worktree }))) return;
+  if (show) showLead.set(name, n);
+  render();
+}
+async function closeExtra(name, n) {
+  const id = extraId(name, n), note = await deck.kill(id);
+  started.delete(id); T.dispose(id); leadWt.delete(id); paneModel.delete(id);
+  if (showLead.get(name) === n) showLead.delete(name);
+  if (leadSplits[name]) { const rest = leadSplits[name].filter(k => k !== n); if (rest.length > 1) leadSplits[name] = rest; else delete leadSplits[name]; }
   if (note) toast(note, /kept/i.test(note));
   render();
   return note;
 }
 async function closeTab(name, ask = true) {
-  const two = started.has(secondId(name));
-  if (ask && started.has(name) && !T.isExited(name) && !confirm(`End the ${name} session${two ? 's (both leads)' : ''}?`)) return;
-  if (two) await closeSecond(name);
+  const extras = extrasOf(name);
+  if (ask && started.has(name) && !T.isExited(name) && !confirm(`End the ${name} session${extras.length ? `s (all ${extras.length + 1} leads)` : ''}?`)) return;
+  for (const n of extras) await closeExtra(name, n);
   await deck.kill(name);
   started.delete(name); T.dispose(name); C.closeCode(name); paneModel.delete(name);
   openTabs = openTabs.filter(v => v !== name);
@@ -161,108 +180,25 @@ async function closeTab(name, ask = true) {
 async function restart(id) {
   const resumeId = await deck.lastConversation(id);
   await deck.kill(id); started.delete(id); T.reset(id);
-  await ensureSession(id, { ...(secondOf(id) ? { worktree: secondWt.get(secondOf(id)) } : {}), orFresh: !!resumeId }, resumeId || undefined); render();
+  await ensureSession(id, { ...(extraOf(id) ? { worktree: leadWt.get(id) } : {}), orFresh: !!resumeId }, resumeId || undefined); render();
 }
+
+// ---------- the parts split out of this file (#1785) ----------
+// They read and set this file's state through S; the functions they call join it before boot.
+const S = { deck, started, collapsed,
+  get projects() { return projects; }, set projects(v) { projects = v; }, get tasksMd() { return tasksMd; }, get voiceMode() { return voiceMode; },
+  get openTabs() { return openTabs; }, get view() { return view; }, set view(v) { view = v; }, get single() { return single; }, set single(v) { single = v; },
+  get splitSet() { return splitSet; }, set splitSet(v) { splitSet = v; }, get layoutId() { return layoutId; }, set layoutId(v) { layoutId = v; },
+  get focused() { return focused; }, set focused(v) { focused = v; }, get groups() { return groups; }, get groupViews() { return groupViews; },
+  get mainView() { return mainView; }, get ctx() { return ctx; }, set ctx(v) { ctx = v; }, get settings() { return settings; },
+  get pmOpen() { return pmOpen; }, set pmOpen(v) { pmOpen = v; }, get leadSplits() { return leadSplits; },
+};
 
 // ---------- groups ----------
-// Opening a group starts its manager and brings back its split. From Home every member
-// opens; from its tab only the members already open show, unless none are.
-async function openGroup(name, all = true, catchup = false) {
-  const g = findGroup(groups, name);
-  if (!g || !(await ensureSession(mgrId(g.name)))) return;
-  const members = g.projects.filter(p => proj(p));
-  if (all || !members.some(p => openTabs.includes(p))) for (const n of members) await openTab(n, false);
-  const v = viewFor({ ...g, projects: members.filter(p => openTabs.includes(p)) }, groupViews[g.name]);
-  ctx = g.name;
-  if (v.shown.length) { splitSet = v.shown; layoutId = v.layoutId; view = 'split'; } else { view = 'single'; single = mgrId(g.name); }
-  render();
-  if (catchup) catchUpOn(members.filter(p => openTabs.includes(p)));
-}
-// Open and catch up (#1025): each lead, and its CTO, get the recap.
-const catchUpOn = names => catchUp({ deck, toast, settings, mgrOf: p => managerFor(groups, p), running: id => started.has(id) && !T.isExited(id) }, names);
-async function closeGroup(name, ask = true) {
-  const id = mgrId(name);
-  if (ask && started.has(id) && !T.isExited(id) && !confirm(`End the ${name} CTO? Its project sessions stay open.`)) return;
-  await deck.kill(id); started.delete(id); T.dispose(id);
-  if (ctx === name) { ctx = null; view = 'home'; }
-  render();
-}
-// The projects on screen, which Save what is open keeps and New group starts with ticked (#1024).
-const onScreen = () => (view === 'split' ? splitSet : openTabs.filter(n => !groupOf(groups, n))).filter(n => isCode(n));
-// A new group of picks; false when it was not made. With split, the split on screen is its view.
-function newGroup(raw, picks, split) {
-  const name = groupName(raw);
-  if (!name) { toast('Give the group a name: letters, digits, - or _', true); return false; }
-  if (findGroup(groups, name)) { toast(`There is already a group called ${findGroup(groups, name).name}`, true); return false; }
-  if (!picks.length) { toast('Pick at least one project', true); return false; }
-  const moves = movesInto(groups, name, picks);
-  if (moves.length && !confirm(`This moves ${moves.map(m => `${m.project} (from ${m.from})`).join(', ')} into ${name}. Continue?`)) return false;
-  saveGroups(addToGroup(groups, name, picks));
-  // The main CTO's split, when its projects are all in the group, becomes the group's split.
-  if (split && !ctx && splitSet.length >= 2 && splitSet.every(n => picks.includes(n))) groupViews[name] = { shown: [...splitSet], layoutId };
-  return true;
-}
-function saveOpen() {
-  const picks = onScreen();
-  if (!picks.length) { toast('Open a project first: Save what is open keeps the projects on screen', true); return; }
-  const name = suggestName(groups, picks);
-  if (newGroup(name, picks, true)) { toast(`Saved group ${name}: click its name to rename it`); render(); }
-}
-// A group's CTO is named after it, so a running one is closed before the group is renamed.
-function renameGroupTo(from, to) {
-  const n = groupName(to);
-  if (!n || n === from) return;
-  if (started.has(mgrId(from)) && !T.isExited(mgrId(from))) { toast(`Close the ${from} CTO first: its session is named after the group`, true); return; }
-  if (findGroup(groups, n) && findGroup(groups, n).name !== from) { toast(`There is already a group called ${findGroup(groups, n).name}`, true); return; }
-  saveGroups(renameGroup(groups, from, n));
-  if (groupViews[from]) { groupViews[n] = groupViews[from]; delete groupViews[from]; }
-  if (ctx === from) ctx = n;
-  render();
-}
-function joinGroup(name, n) {
-  const from = groupOf(groups, n);
-  if (from === name) return true;
-  if (from && !confirm(`Move ${n} from group ${from} to ${name}? Only one CTO works on a project.`)) return false;
-  saveGroups(addToGroup(groups, name, [n])); toast(`${n} is now in group ${name}`);
-  return true;
-}
-function leaveGroup(name, n) {
-  saveGroups(removeFromGroup(groups, name, n));
-  if (ctx === name && view === 'split' && splitSet.includes(n)) {
-    splitSet = splitSet.filter(v => v !== n);
-    if (!splitSet.length) { view = 'single'; single = mgrId(name); } else layoutId = autoLayout(splitSet.length);
-  }
-  render();
-}
-// Right-click a project tab: it, or every tab in its split, goes into a group (#104).
-function tabMenuAt(e, n) {
-  e.preventDefault();
-  const picks = tabTargets(view, splitSet, n);
-  openTabMenu(e.currentTarget, picks, { h, ...tabMenu(groups, picks),
-    onNew: raw => groupTabs(raw, picks, true), onAdd: g => groupTabs(g, picks, false),
-    onLeave: g => { for (const p of picks) if (groupOf(groups, p) === g) leaveGroup(g, p); } });
-}
-function groupTabs(raw, picks, fresh) {
-  const name = groupName(raw);
-  if (!name) { toast('Give the group a name: letters, digits, - or _', true); return false; }
-  if (fresh && findGroup(groups, name)) { toast(`There is already a group called ${findGroup(groups, name).name}`, true); return false; }
-  const moves = movesInto(groups, name, picks);
-  if (moves.length && !confirm(`This moves ${moves.map(m => `${m.project} (from ${m.from})`).join(', ')} into ${name}. Continue?`)) return false;
-  saveGroups(addToGroup(groups, name, picks));
-  const g = findGroup(groups, name).name, v = groupViews[g];
-  if (v) groupViews[g] = { ...v, shown: splitWith(v.shown || [], picks) };
-  toast(`${picks.join(', ')} ${picks.length > 1 ? 'are' : 'is'} now in group ${g}`);
-  openGroup(g, false);
-  return true;
-}
-async function removeGroup(name) {
-  if (!confirm(`Delete group ${name}? Its projects go back to the main CTO.`)) return;
-  if (started.has(mgrId(name))) await closeGroup(name, false);
-  saveGroups(deleteGroup(groups, name)); delete groupViews[name];
-  render();
-}
+const groupActs = groupActions(S);
+const { openGroup, catchUpOn, onScreen, newGroup, saveOpen, renameGroupTo, joinGroup, leaveGroup, removeGroup } = groupActs;
 
-deck.onData(({ id, data }) => { lastOutput.set(id, Date.now()); T.write(id, data); });
+deck.onData(({ id, data }) => { const now = Date.now(); lastOutput.set(id, now); outputRuns.set(id, outputStep(outputRuns.get(id), now)); T.write(id, data); });
 // Claude exiting leaves its shell open to type in (#353); a claude typed there brings the pane back.
 deck.onExit(({ id, shell }) => { T.markExited(id, true, !!shell); render(); });
 // A session that has not joined messaging a minute after opening (#1113): the CTO cannot
@@ -276,256 +212,30 @@ deck.onDataChanged(async d => {
   // A smoke run holds its own boards for the leads it tests, whatever the real files do meanwhile.
   tasksMd = { ...d.tasks, ...smokeHold }; notesMd = d.notes; ideasMd = d.ideas ?? ideasMd;
   if (d.groups) render(); else redrawPage();
-  updateLive(); refreshWhiteboard(); wbCounts();
+  updateLive(); refreshWhiteboard(); wbCounts(); wantSummaries(deck, tasksMd, [ME]);
   // An open card follows its task and its notes, so the CTO's reply shows without reopening.
   const c = openCard(), fresh = c && tasksOf(c.project).find(t => t.n === c.n);
   if (fresh) refreshTask(fresh);
 });
-const { waitingOn, waitingLeads, leadCard, checkPromptAlerts, setWords } = waitingWatch({
+const { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords } = waitingWatch({
   deck, started, groups: () => groups, hasProjects: () => projects.length > 0, mgrName, openTab, updateLive, showPrompts,
+  outputAt: id => lastOutput.get(id) || 0,
 });
 function showPrompts() { redrawPage(); refreshWhiteboard(); wbCounts(); }
 deck.onNavProject(name => { if (proj(name)) openProjectPage(name); });
 deck.onNavMe(() => { revealMe(); view = 'me'; render(); });
-const { openRequest, closeRequest } = ctoRequests({
-  deck, started, paneModel, showSecond, proj, tasksOf, isActive, openTab, openSecond, closeTab, closeSecond, render,
+const { openRequest, openExtraRequest, closeRequest } = ctoRequests({
+  deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, openTab, openExtra, closeTab, closeExtra, render, openFile: (...a) => openFile(...a),
   get projects() { return projects; }, set projects(v) { projects = v; }, get openTabs() { return openTabs; }, get groups() { return groups; }, get groupViews() { return groupViews; },
   get view() { return view; }, set view(v) { view = v; }, get single() { return single; }, get ctx() { return ctx; }, set ctx(v) { ctx = v; },
   get splitSet() { return splitSet; }, set splitSet(v) { splitSet = v; }, set layoutId(v) { layoutId = v; }, get openError() { return openError; }, set openError(v) { openError = v; },
 });
 
-// ---------- voice ----------
-const talkKey = e => e.ctrlKey && e.shiftKey && e.code === 'Space';
-const pmKey = e => e.ctrlKey && e.shiftKey && e.code === 'KeyP';
-// Ctrl+K stays with Claude Code inside a pane; Ctrl+Shift+K opens the search from there (#233).
-T.setKeyFilter(e => !talkKey(e) && !pmKey(e) && !(searchKey(e) && e.shiftKey) && !navKey(e));
-addEventListener('keydown', e => {
-  if (!searchKey(e) || (!e.shiftKey && e.target.closest && e.target.closest('.xterm'))) return;
-  e.preventDefault(); e.stopPropagation();
-  if (!e.repeat) openSearch({ tasksMd, open: showTask });
-}, true);
-// Ctrl+Shift+P shows or hides the PM over the coding view; Escape hides it unless a
-// terminal has the keyboard (Escape means something to Claude Code there).
-function togglePm() { if (!settings.runPm) return; pmOpen = !pmOpen; render(); if (pmOpen) T.focus(PM); }
-addEventListener('keydown', e => {
-  if (pmKey(e) && (view === 'single' || view === 'split')) { e.preventDefault(); togglePm(); }
-  else if (e.key === 'Escape' && pmOpen && (view === 'single' || view === 'split') && !e.target.closest('.xterm')) { pmOpen = false; render(); }
-}, true);
-T.setLinkFailHandler(p => toast(`Can't find ${p}`, true));
-T.setFileOpener(openFile);
-addEventListener('keydown', e => {
-  if (!talkKey(e)) return;
-  e.preventDefault();
-  // With a card open, the voice goes into the card's box instead of the CTO's terminal. The
-  // key's repeats while it is held start nothing more: each start presses Win+H, which toggles
-  // the voice typing bar, and a held key left it open (#1083).
-  if (e.repeat && (helperOpen() || whiteboardOpen() || openCard())) return;
-  if (talkIntoHelper()) return;
-  if (talkIntoWhiteboard()) return;
-  if (openCard()) { talkIntoCard(); return; }
-  if (voiceMode === 'tap' && e.repeat) return;
-  talkAt = Date.now();
-  // Tap mode: the first press starts the dictation and the next one ends it (#1018).
-  if (voiceMode === 'tap') tapSince = tapSince ? 0 : talkAt;
-  const to = view === 'home' || view === 'project' ? MAIN : curMgr();
-  T.typed(to, ' '); deck.write(to, ' ');
-}, true);
-// Claude Code's own dictation, Space held inside a pane, is talking too (#1018): its repeats
-// keep it going like the talk key's. Enter in a pane ends a tapped dictation.
-addEventListener('keydown', e => {
-  if (!e.target.closest || !e.target.closest('.xterm')) return;
-  if (e.code === 'Space' && e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) talkAt = Date.now();
-  else if (e.key === 'Enter' || e.key === 'Escape') tapSince = 0;
-}, true);
-// The talk key's last press: held, it repeats every few tens of ms (#1003's focus log). A tapped
-// dictation counts until the second tap, for two minutes at most.
-let talkAt = 0, tapSince = 0;
-const TAP_MAX = 2 * 60 * 1000;
-const talking = () => Date.now() - talkAt < 400 || (tapSince > 0 && Date.now() - tapSince < TAP_MAX);
-// The same key from another app talks to the main CTO (#253); its Space presses count as typing.
-// There, letting go sends it (#415); inside the app the words wait in the prompt for the owner.
-deck.onTalkGlobal(id => T.typed(id, ' '));
-deck.onTalkSent(id => toast(`Sent to the ${mgrName(id)}`));
-
-// ---------- popovers ----------
-function closePops() { document.querySelectorAll('.pop').forEach(p => p.classList.remove('open')); }
-function togglePop(id, before) {
-  return e => { e.stopPropagation(); const p = document.getElementById(id), was = p.classList.contains('open'); closePops(); if (!was) { before && before(); p.classList.add('open'); } };
-}
-document.addEventListener('click', e => { if (!e.target.closest('.wrap')) closePops(); });
-
-function renderPicker() {
-  const g = document.getElementById('lgrid'); g.replaceChildren();
-  for (const id of Object.keys(LAYOUTS)) {
-    const L = LAYOUTS[id];
-    g.append(h('button', { class: 'lopt' + (view === 'split' && id === layoutId ? ' sel' : ''), title: id, onclick: () => {
-      layoutId = id;
-      if (splitSet.length < 1) splitSet = openTabs.slice(0, slotCount(L.tree));
-      view = 'split'; closePops(); render();
-    } }, miniTree(L.tree)));
-  }
-}
-function renderNewMenu() {
-  const m = document.getElementById('newmenu'); m.replaceChildren();
-  const avail = projects.filter(p => !openTabs.includes(p.name));
-  m.append(h('button', { class: 'mitem', title: 'Pick one folder or several on this PC; each folder\'s name becomes a project name', onclick: async () => {
-    closePops();
-    const r = await deck.addProject();
-    if (r.error) toast(r.error, true);
-    if (!r.ok) return;
-    projects = await deck.projectList();
-    if (r.added.length) toast(`Added ${r.added.join(', ')}`);
-    // One folder opens at once, as before; several land in the + menu and on the Board.
-    if (r.names.length === 1) openTab(r.names[0]); else render();
-  } }, 'Add project folders...'));
-  if (!avail.length) m.append(h('div', { class: 'empty-note' }, 'Every project is open.'));
-  for (const p of avail) {
-    // FocusShell answers Claude Code's trust question itself (#1113), so no folder needs a note (#1119).
-    m.append(h('button', { class: 'mitem', title: p.path, onclick: () => { closePops(); openTab(p.name); } }, p.name));
-  }
-}
-
-// ---------- tabs ----------
-function renderTabs() {
-  const t = document.getElementById('tabs'); t.replaceChildren();
-  // Me (#130) is always first: the owner's own page, never a lead.
-  t.append(h('div', { class: 'tab me' + (view === 'me' ? ' active' : ''), title: 'Self: your to-dos, ideas and sketches', onclick: () => { view = 'me'; render(); } }, h('span', { class: 'st-dot me' }), h('span', { class: 'nm' }, 'Self')));
-  t.append(h('div', { class: 'tab home board' + (view === 'home' || view === 'project' ? ' active' : ''), title: 'Board: every project\'s work and what needs you', onclick: () => { view = 'home'; render(); } }, icon('board'), h('span', { class: 'nm' }, 'Board')));
-  // CTO brings back its last split of two or more projects (#176), else the CTO alone; a
-  // group's tab brings back that group's split.
-  t.append(h('div', { class: 'tab mgr' + (view === 'single' && single === MAIN ? ' active' : ''), title: 'CTO (projects in no group)',
-    onclick: () => {
-      ctx = null;
-      const v = mainViewFor(mainView, n => openTabs.includes(n) && !groupOf(groups, n));
-      if (v) { splitSet = v.shown; layoutId = v.layoutId; view = 'split'; } else { view = 'single'; single = MAIN; }
-      render();
-    } },
-    dot(MAIN), h('span', { class: 'nm' }, 'CTO')));
-  const projTab = (n, inGroup) => {
-    const inSplit = view === 'split' && splitSet.includes(n);
-    const active = (view === 'single' && single === n) || inSplit;
-    const x = h('span', { class: 'x', title: 'End session' }, icon('x'));
-    // How many of the project's sessions run (#124): its lead and its second lead; shown from 2 (#158).
-    const runs = [n, secondId(n)].filter(id => started.has(id) && !T.isExited(id)).length;
-    const tc = runs > 1 ? h('span', { class: 'tc', title: `${runs} terminal${runs > 1 ? 's' : ''} running` }, String(runs)) : null;
-    const cb = h('span', { class: 'cb' + (C.isOpen(n) ? ' on' : ''), title: C.isOpen(n) && active ? 'Close VS Code' : 'Open VS Code beside the lead' }, icon('code'));
-    return h('div', { class: 'tab' + (active ? ' active' : '') + (inSplit ? ' insplit' : '') + (inGroup ? ' ingrp' : ''), title: 'Click to open, Ctrl+click to add to a split', onclick: e => {
-      if (x.contains(e.target)) { closeTab(n); return; }
-      // The </> button opens VS Code beside this lead, showing the project if it is not on screen.
-      if (cb.contains(e.target)) { if (C.isOpen(n) && active) C.closeCode(n); else { if (!active) { view = 'single'; single = n; } C.openCode(n, deck, render); } render(); return; }
-      if (e.ctrlKey || e.metaKey) { toggleInSplit(n); return; }
-      view = 'single'; single = n; render();
-    }, oncontextmenu: e => tabMenuAt(e, n) }, dot(n), h('span', { class: 'pn' }, n), tc, cb, x);
-  };
-  for (const n of openTabs.filter(n => !groupOf(groups, n))) t.append(projTab(n, false));
-  for (const g of groups) {
-    const id = mgrId(g.name), members = openTabs.filter(n => g.projects.includes(n));
-    if (!started.has(id) && !members.length) continue;
-    const active = ctx === g.name && (view === 'split' || (view === 'single' && single === id));
-    const x = h('span', { class: 'x', title: `End the ${g.name} CTO` }, icon('x'));
-    t.append(h('div', { class: 'tab grp' + (active ? ' active' : ''), title: `Group ${g.name}: its CTO and its split`, onclick: e => {
-      if (x.contains(e.target)) { closeGroup(g.name); return; }
-      openGroup(g.name, false);
-    } }, started.has(id) ? dot(id) : h('span', { class: 'st-dot idle' }), h('span', { class: 'nm' }, g.name), started.has(id) ? x : null));
-    for (const n of members) t.append(projTab(n, true));
-  }
-}
-// Ctrl+click: a split holds one manager's projects. In a group, a project from outside
-// joins the group (moving out of another one, after asking); outside groups, a grouped
-// project is refused so two managers never share it.
-function toggleInSplit(n) {
-  if (view === 'home' || view === 'project') ctx = groupOf(groups, n);
-  if (view === 'single') ctx = isMgr(single) ? groupOfMgr(single) : groupOf(groups, single);
-  const g = groupOf(groups, n);
-  if (!ctx && g) { toast(`${n} is in group ${g}. Open that group to put it in a split.`, true); return; }
-  if (ctx && g !== ctx && !joinGroup(ctx, n)) return;
-  if (view !== 'split') { splitSet = view === 'single' && !isMgr(single) ? [single] : []; view = 'split'; }
-  splitSet = splitSet.includes(n) ? splitSet.filter(v => v !== n) : [...splitSet, n];
-  if (!splitSet.length) { if (ctx) { view = 'single'; single = mgrId(ctx); } else view = 'home'; }
-  else layoutId = autoLayout(splitSet.length);
-  render();
-}
-
-// ---------- panes ----------
-function paneEl(id) {
-  if (!id) return h('div', { class: 'pane empty' }, h('div', { class: 'ph' }, h('span', { class: 'pn' }, 'Empty slot')), h('div', { class: 'body' }, 'Ctrl+click a tab to fill this slot'));
-  const mgr = isMgr(id);
-  // A project pane shows its first lead or, switched in the header, its second (term).
-  const lead = !mgr && id !== PM, sid = lead ? secondId(id) : null, has2 = !!sid && started.has(sid);
-  const term = has2 && showSecond.has(id) ? sid : id;
-  const swBtn = (n, s) => h('button', { class: term === s ? 'on' : '', title: `lead-${id}${n === '2' ? '-2' : ''}`, onclick: async e => {
-    e.stopPropagation(); if (n === '2') showSecond.add(id); else { showSecond.delete(id); await ensureSession(id); } render();
-  } }, dot(s), n);
-  const two = !lead ? null : has2 ? h('span', { class: 'leads' }, swBtn('1', id), swBtn('2', sid))
-    : h('button', { class: 'two', title: 'Start a second lead on this project', onclick: e => {
-      e.stopPropagation();
-      e.currentTarget.replaceWith(h('span', { class: 'leads pick' },
-        h('button', { title: 'Both leads work in the project folder, on files that do not overlap', onclick: () => openSecond(id, false) }, 'Same folder'),
-        h('button', { title: 'The second lead gets its own git worktree, removed when it closes', onclick: () => openSecond(id, true) }, 'Own worktree')));
-    } }, '+2');
-  const folded = collapsed.has(id);
-  const foldBtn = !mgr && view === 'split'
-    ? h('button', { class: 'fold', title: folded ? 'Expand' : 'Collapse', onclick: e => { e.stopPropagation(); folded ? collapsed.delete(id) : collapsed.add(id); render(); } }, icon('fold'))
-    : null;
-  const find = h('button', { class: 'find', title: 'Find in this pane (Ctrl+Shift+F)', onclick: e => { e.stopPropagation(); T.openFind(term); } }, icon('search'));
-  const top = h('button', { title: 'Jump to top (Ctrl+Home)', onclick: () => T.jumpToTop(term) }, icon('top'));
-  const last = h('button', { title: 'Jump to your last prompt', onclick: () => { if (!T.jumpToLastPrompt(term)) toast('No prompt sent in this pane yet, or it has scrolled out of the history'); } }, icon('lastprompt'));
-  const who = mgr ? mgrName(id) : id === PM ? 'the PM' : term === sid ? `lead-${id}-2` : `lead-${id}`;
-  const sketch = h('button', { class: 'sketch', title: `Sketch: draw something into ${who}'s prompt`, onclick: () => openSketch(term, who, () => T.focus(term)) }, icon('pen'));
-  const end2 = term === sid ? h('button', { title: `End lead-${id}-2`, onclick: () => { if (confirm(`End lead-${id}-2?`)) closeSecond(id); } }, icon('x')) : null;
-  // Every project pane opens or closes VS Code beside itself, like the tab's </> button.
-  const code = mgr || id === PM ? null : h('button', { class: C.isOpen(id) ? 'on' : '', title: C.isOpen(id) ? 'Close VS Code' : 'Open VS Code beside the lead',
-    onclick: () => { if (C.isOpen(id)) C.closeCode(id); else C.openCode(id, deck, render); render(); } }, icon('code'));
-  const acts = h('span', { class: 'pa' }, mgr ? wbButton(id) : null, mgr && settings.showMissed ? missedButton(id) : null, mgr ? statusButton(id) : null, foldBtn, find, top, last, code, sketch, end2,
-    !mgr && view === 'split' ? h('button', { title: 'Open on its own', onclick: () => { view = 'single'; single = id; render(); } }, icon('popout')) : null,
-    !mgr && view === 'split' ? h('button', { title: 'Remove from split', onclick: () => toggleInSplit(id) }, icon('x')) : null);
-  const head = h('div', { class: 'ph', ondblclick: () => { if (!mgr) { view = 'single'; single = id; render(); } } },
-    dot(term), lead ? h('span', { class: 'pn link', title: `Open the ${id} project page`, onclick: e => { e.stopPropagation(); openProjectPage(id); } }, id)
-      : h('span', { class: 'pn' }, mgr ? mgrName(id) : id), two, h('span', { class: 'lbl', 'data-lbl': term }, labelOf(term)), acts);
-  const body = h('div', { class: 'body' });
-  const el = h('div', { class: 'pane' + (mgr ? ' manager' : '') + (folded ? ' collapsed' : '') + (focused === id ? ' focus' : ''), style: `--pc:${mgr ? 'var(--accent)' : id === PM ? 'var(--me)' : `var(--p${paneColour(id, 8)})`}`, onmousedown: () => {
-    focused = id; document.querySelectorAll('.pane').forEach(x => x.classList.remove('focus')); el.classList.add('focus');
-  } }, head, body);
-  T.mount(term, body);
-  if (T.isExited(term) && T.shellLive(term)) body.append(h('div', { class: 'endbar' }, h('span', {}, 'Claude has exited. This pane is a shell now.'), h('button', { class: 'btn primary', onclick: () => restart(term) }, 'Restart')));
-  else if (T.isExited(term)) body.append(h('div', { class: 'overlay' }, h('div', {}, h('p', {}, 'This session has ended.'), h('button', { class: 'btn primary', onclick: () => restart(term) }, 'Restart'))));
-  if (!lead || folded || !C.isOpen(id)) return el;
-  return C.beside(id, el, { h, icon, dragGutter, onClose: () => { C.closeCode(id); render(); }, onExternal: () => deck.openInCode(id),
-    onRetry: () => { C.closeCode(id); C.openCode(id, deck, render); render(); } });
-}
-// Divider positions dragged this run, per layout, panes and split (#189), so a redraw such
-// as opening VS Code keeps them instead of going back to the layout's fractions.
-const dragged = new Map();
-function buildTree(node, names, key = names.join(',')) {
-  if (node === 'M') {
-    // The context's manager; a group's manager starts here if it is not running yet.
-    const m = curMgr();
-    if (!started.has(m)) ensureSession(m).then(ok => ok && updateLive());
-    return paneEl(m);
-  }
-  if (typeof node === 'number') return paneEl(names[node]);
-  const [dir, kids] = node, wrap = h('div', { class: 'split' + (dir === 'v' ? ' v' : '') });
-  const saved = dragged.get(key), fracs = saved && saved.length === kids.length ? saved : kids.map(k => k[1]);
-  const cellEls = [];
-  // After a drag, each open cell keeps its share of the space the open cells had.
-  const remember = () => {
-    const open = cellEls.map((c, i) => /folded-/.test(c.className) ? null : i).filter(i => i !== null);
-    const px = open.map(i => { const r = cellEls[i].getBoundingClientRect(); return dir === 'v' ? r.height : r.width; });
-    const total = px.reduce((a, b) => a + b, 0), share = open.reduce((a, i) => a + fracs[i], 0);
-    if (!total) return;
-    const next = [...fracs];
-    open.forEach((i, j) => { next[i] = px[j] / total * share; });
-    dragged.set(key, next);
-  };
-  kids.forEach(([child], i) => {
-    if (i > 0) { const g = h('div', { class: 'gutter' }); dragGutter(g, dir, remember); wrap.append(g); }
-    const leaf = typeof child === 'number' ? names[child] : null;
-    const fold = leaf && collapsed.has(leaf);
-    const cell = h('div', { class: 'cell' + (fold ? ' folded-' + dir : ''), style: fold ? `flex:0 0 ${dir === 'v' ? 31 : 34}px` : `flex:${fracs[i] * 100} 1 0` }, buildTree(child, names, `${key}/${i}`));
-    cellEls.push(cell); wrap.append(cell);
-  });
-  return wrap;
-}
+// ---------- voice and keys, title bar, panes ----------
+const { togglePm, talking } = windowKeys(S);
+const bar = titleBar(S);
+const { togglePop, renderPicker, renderNewMenu, renderTabs } = bar;
+const { buildTree } = panes(S);
 
 // ---------- project page ----------
 function openProjectPage(name) {
@@ -633,8 +343,9 @@ function renderMePage() {
 // pane, it opens beside that lead with the lead's folder (a second lead's worktree) as the
 // workspace; otherwise beside the project that holds it. A file in no project (#292) opens
 // beside the project whose item linked it, else the project last on screen, else the first open one.
+// Answers the project whose Code pane shows it, or whether File Explorer showed it.
 async function openFile(id, file, from) {
-  const lead = id && !isMgr(id) && id !== PM ? (secondOf(id) || id) : null;
+  const lead = id && !isMgr(id) && id !== PM ? projectOf(id) : null;
   const name = (lead && proj(lead) ? lead : null) || (await deck.projectForFile(file)) || (from && from !== ME && proj(from) ? from : null)
     || (single && proj(single) ? single : null) || openTabs.find(n => proj(n)) || null;
   // A file the Code pane cannot open shows selected in File Explorer instead (#207).
@@ -642,7 +353,7 @@ async function openFile(id, file, from) {
   if (!openTabs.includes(name)) await openTab(name, false);
   if (!openTabs.includes(name)) return deck.openPath(file);
   view = 'single'; single = name; C.openCode(name, deck, render, file, lead === name ? id : null); render();
-  return true;
+  return name;
 }
 const openMd = file => openFile(null, file);
 // An opened card talks to its project's CTO: "ANSWER <Project> #<n>: ..." for a card that
@@ -654,7 +365,10 @@ function talkCard(project, n, text, isAnswer) {
   return true;
 }
 // A line from a card click waits while the owner is writing in the CTO's prompt (#243).
-const toCto = (m, line, sent) => typeLine(deck, m, line).then(r => toast(r === 'held' ? `${sent.replace(/^Sent/, 'Held')}: sent when your prompt is empty` : sent));
+// "Sent" shows only once it went with its Enter (#1340); one left in the prompt says so.
+const LEFT = 'Not sent: the line is still in the CTO\'s prompt. Press Enter there, or clear it.';
+const toCto = (m, line, sent) => typeLine(deck, m, line, () => toast(sent), () => toast(LEFT, true))
+  .then(r => { if (r === 'held') toast(`${sent.replace(/^Sent/, 'Held')}: sent when your prompt is empty`); });
 // An idea from the Me page (#342) goes to the main CTO, since it has no project yet.
 async function ideaToCto(line, sent) {
   if (!started.has(MAIN) || T.isExited(MAIN)) { toast('The CTO session has ended. Restart it on its tab.', true); return false; }
@@ -665,8 +379,8 @@ async function ideaToCto(line, sent) {
 async function recordingToCto(line) {
   if (!started.has(MAIN) || T.isExited(MAIN)) { toast('The CTO session has ended. Restart it on its tab.', true); return false; }
   const fail = again => toast('The CTO did not get the recording\'s cards. They are on the boards; send them to the CTO again?', true, { label: 'Send again', run: again });
-  const r = await deliver(deck, MAIN, line, fail);
-  toast(r === 'held' ? 'Held for the CTO: sent when your prompt is empty' : 'Sent to the CTO');
+  const r = await deliver(deck, MAIN, line, fail, () => toast('Sent to the CTO'), () => toast(LEFT, true));
+  if (r === 'held') toast('Held for the CTO: sent when your prompt is empty');
   return true;
 }
 // Answers go to the project's own manager, the one that asked.
@@ -676,12 +390,15 @@ function answer(project, n, option) {
   toCto(m, `${project} #${n}: ${option}`, `Sent to the ${mgrName(m)}: ${project} #${n}: ${option}`);
 }
 // The whiteboard (#52): beside each CTO pane, the items waiting on the owner in its projects.
-const wbData = () => ({ tasksMd, groups, skip: [ME] });
+// Cards the owner removed from Waiting (#1168) are kept in ui.json, { "<Project>#<n>": question }.
+const wbHidden = () => (homeLayout || {}).wbHidden || {};
+const wbData = () => ({ tasksMd, groups, skip: [ME], hidden: wbHidden() });
 const wbButton = id => h('button', { class: 'wbbtn', 'data-wb': id, title: 'Waiting on you: answer every question in one place', onclick: () => openWhiteboard({
   h, icon, deck, toast, openMd, mgr: id, title: mgrName(id), data: wbData, talk: (p, n, text) => talkCard(p, n, text, true), open: showTask,
   prompts: () => waitingLeads(id), promptCard: leadCard,
+  setHidden: m => { homeLayout = { ...(homeLayout || {}), wbHidden: m }; saveUi(); wbCounts(); },
 }) }, icon('board'), h('span', {}, 'Waiting'), h('b', {}, String(wbCount(id))));
-const wbCount = m => waitingCount(tasksMd, groups, m, [ME]) + waitingLeads(m).length;
+const wbCount = m => waitingCount(tasksMd, groups, m, [ME], wbHidden()) + waitingLeads(m).length;
 function wbCounts() { document.querySelectorAll('.wbbtn[data-wb]').forEach(b => { b.lastChild.textContent = String(wbCount(b.dataset.wb)); }); refreshMissed(); }
 // Maybe missed (#367): beside Waiting on you, what the owner may have skipped in the CTO's replies.
 setupMissed({ h, icon, deck, toast, openMd, tasksMd: () => tasksMd, prompts: m => waitingLeads(m), mgrName,
@@ -690,10 +407,11 @@ setupMissed({ h, icon, deck, toast, openMd, tasksMd: () => tasksMd, prompts: m =
   tell: async (m, line) => { if (!started.has(m) || T.isExited(m)) { toast(`The ${mgrName(m)} is not running.`, true); return false; } await toCto(m, line, `Sent to the ${mgrName(m)}`); return true; } });
 setInterval(refreshMissed, 20000);
 // Status (#383): beside Missed, where each lead open for that CTO stopped.
-const leadsOfMgr = m => [...started].filter(id => !isMgr(id) && id !== PM && !T.isExited(id) && managerFor(groups, id.replace(/:2$/, '')) === m)
-  .map(id => ({ id, name: sessionName(id), busy: isActive(id), prompt: waitingOn.has(id), task: leadTask(tasksOf(id.replace(/:2$/, '')), sessionName(id)) }));
+const leadsOfMgr = m => [...started].filter(id => !isMgr(id) && id !== PM && !T.isExited(id) && managerFor(groups, projectOf(id)) === m)
+  .map(id => ({ id, name: sessionName(id), busy: isActive(id), prompt: waitingOn.has(id), task: leadTask(tasksOf(projectOf(id)), sessionName(id)) }));
 setupStatus({ h, icon, deck, mgrName, leadsOf: leadsOfMgr, lastOutput: id => lastOutput.get(id) || 0,
-  ctos: () => [...started].filter(id => isMgr(id) && !T.isExited(id)), ask: (m, line) => typeLine(deck, m, line), every: () => settings.statusEvery * 60000 });
+  ctos: () => [...started].filter(id => isMgr(id) && !T.isExited(id)), ask: (m, line) => typeLine(deck, m, line), every: () => settings.statusEvery * 60000,
+  owner: async m => ({ ago: T.typingIn(m).ago, draft: await drafting(m) }) });
 // Send: hands a ready item to its project's CTO, the same as the PM's SEND message.
 function send(project, n) {
   const m = managerFor(groups, project);
@@ -772,13 +490,12 @@ function renderStatus() {
   s.append(h('span', { class: 'it' }, h('b', {}, ids.length), ' project sessions'),
     h('span', { class: 'it' }, h('span', { class: 'st-dot working' }), c('working'), ' working'),
     h('span', { class: 'it' }, h('span', { class: 'st-dot needs' }), c('needs'), ' need you'),
-    h('span', { class: 'it' }, h('span', { class: 'st-dot blocked' }), c('blocked'), ' blocked'),
     h('span', { class: 'spacer' }),
     h('span', { class: 'it talkhint' }, h('kbd', {}, 'Ctrl'), '+', h('kbd', {}, 'Shift'), '+', h('kbd', {}, 'Space'), voiceMode === 'tap' ? ' talk to the CTO' : ' hold to talk to the CTO'));
 }
 // Cheap refresh of dots and labels, so terminals are never remounted on a timer.
 function updateLive() {
-  document.querySelectorAll('[data-dot]').forEach(d => { const id = d.dataset.dot; d.className = 'st-dot ' + stateOf(id) + (isActive(id) ? ' active' : ''); });
+  document.querySelectorAll('[data-dot]').forEach(d => { const id = d.dataset.dot; d.className = 'st-dot ' + stateOf(id) + (isActive(id) ? ' active' : ''); d.dataset.tip = tipOf(id); });
   document.querySelectorAll('[data-lbl]').forEach(l => { l.textContent = labelOf(l.dataset.lbl); });
   renderStatus();
 }
@@ -883,7 +600,7 @@ function draw(held) {
     const tree = isMgr(single) ? 'M' : SINGLE_WITH_MANAGER;
     stage.append(tree === 'M' ? buildTree('M', []) : buildTree(tree, [single], `single:${single}`));
     focused = single;
-    if (wasSingle !== single || !held) T.focus(showSecond.has(single) && started.has(secondId(single)) ? secondId(single) : single);
+    if (wasSingle !== single || !held) T.focus(shownLead(single));
     shownSingle = single;
   } else {
     stage.append(buildTree(LAYOUTS[layoutId].tree, splitSet, `${layoutId}:${splitSet.join(',')}`));
@@ -909,6 +626,9 @@ startNav({ deck, render, tasksOf, showTask,
     if (view === 'home' && boardFocus && !boardExtra) setBoardFocus(boardFocus);
   } });
 
+Object.assign(S, groupActs, bar, { ensureSession, proj, openTab, render, saveGroups, isCode, showTask, openFile, curMgr, mgrName, dot, labelOf, closeTab,
+  extrasOf, shownLead, splitLeads, showN, openExtra, closeExtra, wbButton, openProjectPage, restart, updateLive });
+
 // ---------- boot ----------
 document.getElementById('btnNew').append(icon('plus'));
 document.getElementById('btnLayout').append(icon('layout'), 'Layout');
@@ -927,7 +647,7 @@ document.getElementById('btnNew').onclick = togglePop('newmenu', renderNewMenu);
 let tavernHelpers = [], smokeRun = false;
 setInterval(async () => {
   const list = await deck.tavernHelpers().catch(() => []);
-  tavernHelpers = list.map(x => ({ ...x, project: isMgr(x.parent) || x.parent === PM ? 'All projects' : secondOf(x.parent) || x.parent }));
+  tavernHelpers = list.map(x => ({ ...x, project: isMgr(x.parent) || x.parent === PM ? 'All projects' : projectOf(x.parent) }));
 }, 5000);
 // The Demo (#135): set when it starts, so its tavern's robots are a new mix each start (#305).
 let demoSeed = 0;
@@ -935,8 +655,8 @@ document.getElementById('btnSettings').before(tavernButton({
   h, icon, deck, toast, openPane: openTab, isSmoke: () => smokeRun,
   input: () => ({
     sessions: [...started].filter(id => !T.isExited(id)).map(id => {
-      const role = isMgr(id) ? 'cto' : id === PM ? 'pm' : 'lead', project = role === 'lead' ? secondOf(id) || id : null;
-      return { id, role, project, name: role === 'cto' ? mgrName(id) : role === 'pm' ? 'PM' : secondOf(id) ? `lead-${project}-2` : `lead-${id}`, state: stateOf(id) };
+      const role = isMgr(id) ? 'cto' : id === PM ? 'pm' : 'lead', project = role === 'lead' ? projectOf(id) : null;
+      return { id, role, project, name: role === 'cto' ? mgrName(id) : role === 'pm' ? 'PM' : sessionName(id), state: stateOf(id) };
     }),
     prompts: waitingLeads().map(w => ({ id: w.id, session: w.words ? w.project : w.id, what: w.words ? (w.words.why || w.words.words || 'Your words, please') : w.what })),
     tasksMd, helpers: tavernHelpers, picks: settings.tavernLooks, skip: [ME],
@@ -951,7 +671,7 @@ document.getElementById('btnSettings').before(tavernButton({
   workOf: a => {
     if (a.role !== 'lead' || !a.project) return {};
     const mine = tasksOf(a.project).filter(t => t.who === a.name);
-    return { task: mine.find(t => t.mark === '~') || (a.id.startsWith('visit:') ? null : tasksOf(a.project).find(t => t.mark === '~' && !t.who.endsWith('-2'))),
+    return { task: mine.find(t => t.mark === '~') || (a.id.startsWith('visit:') ? null : tasksOf(a.project).find(t => t.mark === '~' && !/-[2-5]$/.test(t.who))),
       report: [...mine].reverse().find(t => t.result) };
   },
 }));
@@ -968,6 +688,7 @@ document.getElementById('btnLayout').onclick = togglePop('layouts');
     } }, 'Fill demo boards'));
   projects = init.projects; tasksMd = init.data.tasks; notesMd = init.data.notes; ideasMd = init.data.ideas || ''; voiceMode = init.voiceMode;
   setupFocusLog(init.focusLog, { talking });
+  setupSummaries(deck); wantSummaries(deck, tasksMd, [ME]);
   setWords(await deck.wordsList());
   showMissing(init.missing);
   // During the first-run setup the CTO waits for it to end (#1061).
@@ -985,10 +706,10 @@ document.getElementById('btnLayout').onclick = togglePop('layouts');
     await smoke({
       get projects() { return projects; }, set projects(v) { projects = v; }, get tasksMd() { return tasksMd; }, set tasksMd(v) { tasksMd = v; },
       set prevSession(v) { prevSession = v; }, set splitSet(v) { splitSet = v; }, set layoutId(v) { layoutId = v; }, get layoutId() { return layoutId; },
-      set view(v) { view = v; }, set single(v) { single = v; }, set ctx(v) { ctx = v; },
+      get view() { return view; }, set view(v) { view = v; }, get single() { return single; }, set single(v) { single = v; }, set ctx(v) { ctx = v; }, started, showLead,
       set pmOpen(v) { pmOpen = v; }, get splitSet() { return splitSet; }, get openTabs() { return openTabs; }, get groups() { return groups; }, set groups(v) { groups = v; },
       get settings() { return settings; }, set hold(v) { smokeHold = v || {}; }, set smokePick(v) { smokePick = v; }, startSetup, startTour, set settings(v) { settings = v; }, collapsed, saveSettings,
-      render, openTab, closeTab, openProjectPage, openRequest, closeRequest, setBoardFocus, openGroup, openMd, openFile, wbCounts, openSecond, closeSecond, proj, tasksOf, showTask, checkPromptAlerts,
+      render, openTab, closeTab, openProjectPage, openRequest, openExtraRequest, closeRequest, setBoardFocus, openGroup, openMd, openFile, wbCounts, openExtra, closeExtra, proj, tasksOf, showTask, checkPromptAlerts,
       focusLog, toCto, redrawPage, restart,
     }).catch(e => deck.smokeFail((e && e.stack) || e));
     return;
@@ -999,6 +720,7 @@ document.getElementById('btnLayout').onclick = togglePop('layouts');
   groupViews = ui.groupViews && typeof ui.groupViews === 'object' ? ui.groupViews : {};
   mainView = ui.mainView && typeof ui.mainView === 'object' ? ui.mainView : null;
   homeLayout = ui.homeLayout && typeof ui.homeLayout === 'object' ? ui.homeLayout : null;
+  leadSplits = ui.leadSplits && typeof ui.leadSplits === 'object' ? ui.leadSplits : {};
   recent = init.recent && typeof init.recent === 'object' ? init.recent : {};
   settings = normalizeSettings(init.settings);
   if (settings.pmStartFolded) settings.pmFolded = true;

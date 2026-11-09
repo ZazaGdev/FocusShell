@@ -18,14 +18,20 @@ export function parseRequest(id, body, now = Date.now()) {
   if (!words.trim()) return { error: 'no words' };
   if (/[\x00-\x1f\x7f]/.test(words)) return { error: 'the words hold a line break or control character' };
   if (words.length > MAX_WORDS) return { error: `the words are longer than ${MAX_WORDS} characters` };
-  const lead = r.second ? `lead-${project}-2` : `lead-${project}`;
+  // Which of the project's leads (#1485): "n" 2 to 5, or the older "second": true for 2.
+  const n = Number(r.n) || (r.second ? 2 : 1);
+  if (![1, 2, 3, 4, 5].includes(n)) return { error: `lead ${r.n} is not 2 to 5` };
+  const lead = n > 1 ? `lead-${project}-${n}` : `lead-${project}`;
   const created = Number(r.created) || now;
   if (now - created > EXPIRES) return { error: 'the request is older than 24 hours' };
   return { id: String(id), project, lead, task, words, why, created };
 }
 
-// The session a lead runs as: lead-<Project> is session <Project>, lead-<Project>-2 is <Project>:2.
-export const sessionOfLead = (project, lead) => (lead === `lead-${project}-2` ? `${project}:2` : project);
+// The session a lead runs as: lead-<Project> is session <Project>, lead-<Project>-<n> is <Project>:<n>.
+export function sessionOfLead(project, lead) {
+  const n = String(lead).startsWith(`lead-${project}-`) ? String(lead).slice(`lead-${project}-`.length) : '';
+  return /^[2-5]$/.test(n) ? `${project}:${n}` : project;
+}
 
 // What the CTO is told after the owner's click, typed into its prompt like a card's ANSWER.
 export function ctoLine(r, outcome) {

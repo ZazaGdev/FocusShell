@@ -15,9 +15,10 @@ test('a reply logged once per content block is counted once', () => {
 });
 
 test('log folders are named after their agents', () => {
-  assert.equal(agentName('D--SideProjects-FocusShell-manager'), 'CTO');
-  assert.equal(agentName('D--SideProjects-FocusShell-pm'), 'PM');
-  assert.equal(agentName('D--SideProjects-FocusShell'), 'lead-FocusShell');
-  assert.equal(agentName('D--SideProjects-FocusShell-state-worktrees-Clipper-2'), 'lead-Clipper-2');
-  assert.equal(agentName('D--BX-project'), 'lead-BX-project');
+  const known = { roots: ['D:\\Projects'] };
+  assert.equal(agentName('D--Projects-FocusShell-manager', known), 'CTO');
+  assert.equal(agentName('D--Projects-FocusShell-pm', known), 'PM');
+  assert.equal(agentName('D--Projects-FocusShell', known), 'lead-FocusShell');
+  assert.equal(agentName('D--Projects-FocusShell-state-worktrees-Clipper-2', known), 'lead-Clipper-2');
+  assert.equal(agentName('D--BX-project', known), 'lead-BX-project');
 });

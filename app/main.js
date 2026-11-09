@@ -1,7 +1,7 @@
 // FocusShell main process: owns the Claude Code sessions (pseudo-terminals) and the
 // files they share; the window only draws them.
 import { guardWindow } from './window-guard.js'; // first: it guards every IPC handler registered after it
-import { app, BrowserWindow, ipcMain, dialog, shell, Notification, clipboard, ClipboardItem, powerMonitor, desktopCapturer, screen } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, Notification, clipboard, ClipboardItem, powerMonitor, desktopCapturer, screen, systemPreferences } from 'electron';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,10 +10,17 @@ import path from 'node:path';
 import os from 'node:os';
 import { parseProjects, trustedPaths, isTrusted, mergeProjects, withProjectModel } from './lib/projects.js';
 import { waitingFor, plainText } from './lib/prompts.js';
+import { memoryClipboard, keepClipboard, whenTaken, putBack } from './lib/clip.js';
 import { trustQuestion, trustKeys, joined, JOIN_GRACE_MS, TRUST_WATCH_MS } from './lib/joined.js';
+import { moveAcross, SESSION_DIRS } from './lib/localdata.js';
 import { missingTools } from './lib/requirements.js';
 import { nextShared } from './lib/counter.js';
-import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, secondOf, secondLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs } from './lib/sessions.js';
+import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraOf, projectOf, extraLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, CLAUDE, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs, posixSpawn } from './lib/sessions.js';
+import { isWin, loginPath } from './lib/shell.js';
+import { isAbsPath, onDisk } from './lib/localpath.js';
+import { imagePasteKey } from './lib/platform.js';
+import { ACCESSIBILITY, dictateScript } from './lib/keystate.js';
+import { tellOnce } from './permission-note.js';
 import { normalizeGroups, findGroup, managerFor, groupOfMgr, isMgr } from './lib/groups.js';
 import { addTaskLine, addNoteLine, newAlerts, holdAlerts, dueAlerts, seenAlerts, parseTasks } from './lib/tasks.js';
 import { laterToasts, usingApp, shouldToast } from './lib/toasts.js';
@@ -23,6 +30,7 @@ import { isPersonal, personalArgs, seedPersonal } from './lib/personal.js';
 import { dueReminders, setSomeday, setSchedule } from './lib/me.js';
 import { registerMeFiles, resetSmokeMe } from './me-files.js';
 import { registerHelper } from './helper.js';
+import { registerCardSummaries } from './card-summaries.js';
 import { registerCatchup } from './catchup.js';
 import { registerSetupCheck } from './setup-check.js';
 import { voiceBar } from './lib/voicebar.js';
@@ -31,6 +39,9 @@ import { updatesOn } from './lib/update.js';
 import { registerProjectPage } from './project-page.js';
 import { registerCodeWeb } from './code-web.js';
 import { registerMissed, noteTyping } from './missed.js';
+import { registerBackground } from './background.js';
+import { registerWorktreeSweep } from './worktree-sweep.js';
+import { leadWorktreeRisk } from './lib/worktrees.js';
 import { registerStatus } from './lead-status.js';
 import { registerRequests } from './requests.js';
 import { registerGlobalTalk } from './global-talk.js';
@@ -40,6 +51,7 @@ import { pluginServices } from './plugin-services.js';
 import { update } from './lib/boardio.js';
 import { activeHelpers } from './lib/tavern/helpers.js';
 import { sessionBoard, periodBoard, periodStart } from './lib/tavern/tokens.js';
+import { OWN_APP_FILES } from './lib/owntools.js';
 import { tasksDone } from './lib/tavern/tally.js';
 import { fiveHour } from './lib/tavern/usage.js';
 import { keepPid, releasePid } from './lib/pidfile.js';
@@ -47,6 +59,10 @@ import { copyRoom } from './build/copy-room.mjs';
 
 const require = createRequire(import.meta.url);
 const pty = require('node-pty');
+// A Mac app opened from the Dock has a bare PATH: take the owner's login shell PATH once, so
+// panes, Claude turns, git and node find what the owner installed (#2562).
+const WIN = isWin();
+if (!WIN) process.env.PATH = loginPath();
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 // Where FocusShell keeps its data (tasks, briefs, notes, the manager's folder). The
@@ -59,6 +75,12 @@ const DEMO = process.argv.includes('--demo');
 const DEMO_HOME = path.resolve(process.env.FOCUSSHELL_HOME || path.join(path.parse(APP_DIR).root, 'FocusShellDemo', 'deck'));
 const APP_NAME = DEMO ? 'FocusShell Demo' : 'FocusShell';
 if (DEMO) app.setPath('userData', path.join(path.dirname(DEMO_HOME), 'userdata'));
+// The installed app's big, re-creatable data (Chromium's caches and the Code pane's storage,
+// and the VS Code server below) lives in AppData\Local, not Roaming (#1124); an older install's
+// copies move across once. A development or Demo run keeps its own folders.
+// On a Mac that is ~/Library/Caches (#2562).
+const LOCAL = app.isPackaged && !DEMO ? path.join(WIN ? process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local') : path.join(os.homedir(), 'Library', 'Caches'), 'FocusShell') : null;
+if (LOCAL) { moveAcross(app.getPath('userData'), LOCAL, SESSION_DIRS); app.setPath('sessionData', LOCAL); }
 function resolveDeck() {
   if (DEMO) return DEMO_HOME;
   if (process.env.FOCUSSHELL_HOME) return path.resolve(process.env.FOCUSSHELL_HOME);
@@ -110,7 +132,12 @@ const P = {
   reminders: path.join(DECK, 'state', 'reminders.json'),
   pid: path.join(DECK, 'state', 'app.pid'),
   smoke: path.join(DECK, 'state', 'smoke'),
+  // Where the Code pane's VS Code server and its extensions live: AppData\Local for the
+  // installed app (#1124), the data folder's state otherwise.
+  big: LOCAL || path.join(DECK, 'state'),
 };
+// An installed app from before #1124 kept the VS Code server under its data folder in Roaming.
+if (LOCAL) moveAcross(P.state, LOCAL, ['vscode-server']);
 // --try: the smoke test's fake sessions and no saved state, but the window stays open, so
 // a branch can be tried beside the real FocusShell without two sessions sharing a name.
 const TRY = process.argv.includes('--try');
@@ -126,10 +153,38 @@ if (SMOKE) P.requests = path.join(P.smoke, 'requests');
 // A try run keeps its window state (the Board's filters) in a file of
 // its own, so a restarted try run comes back as it was and the real ui.json is never touched (#300).
 if (TRY) P.ui = path.join(P.smoke, 'try-ui.json');
+// One smoke run at a time (#1176): state/smoke is shared, and a second run starting clears the
+// folders the first is using (EPERM on Windows). A run waits here until the one holding
+// state/smoke/run.lock has ended; a lock whose process is gone is taken over.
+if (SMOKE && !TRY) {
+  const lock = path.join(P.smoke, 'run.lock'), alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  fs.mkdirSync(P.smoke, { recursive: true });
+  for (let said = false; ;) {
+    try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; } catch { /* held */ }
+    let pid = 0;
+    try { pid = Number(fs.readFileSync(lock, 'utf8')) || 0; } catch { continue; /* ended just now */ }
+    if (!alive(pid)) { try { fs.rmSync(lock, { force: true }); } catch { /* taken meanwhile */ } continue; }
+    if (!said) { process.stderr.write(`waiting for the smoke run in process ${pid} to end\n`); said = true; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
+  }
+  process.on('exit', () => { try { if (fs.readFileSync(lock, 'utf8') === String(process.pid)) fs.rmSync(lock, { force: true }); } catch { /* gone */ } });
+}
+// Smoke and try runs work on a copy of the boards made at each start, so a Done click or an
+// added item there never changes a real board (#1316). Briefs are only read, so they stay.
+// A try run and a smoke run can be open at once, so each has its own copy; one that cannot be
+// cleared (still in use) is copied over instead.
+if (SMOKE) {
+  const real = { tasks: P.tasks, notes: P.notes, projectNotes: P.projectNotes };
+  const boards = path.join(P.smoke, TRY ? 'try-boards' : 'boards');
+  P.tasks = path.join(boards, 'tasks'); P.notes = path.join(boards, 'notes.md'); P.projectNotes = path.join(boards, 'notes');
+  try { fs.rmSync(boards, { recursive: true, force: true }); } catch { /* in use: copied over below */ }
+  for (const k of Object.keys(real)) { try { fs.cpSync(real[k], P[k], { recursive: true }); } catch { /* none yet */ } }
+}
 // A smoke run that fails, in this process or the page, must not leave a window or Electron's
 // error dialog behind (#187): it writes the error to state/smoke/error.txt and stderr and
-// exits with code 1. One that has not finished after twelve minutes fails the same way (the
-// 60 s talk-key hold of #1003 made ten too tight).
+// exits with code 1. One that has not finished after fifteen minutes fails the same way (the
+// 60 s talk-key hold of #1003 made ten too tight, and a full run took 12.6 by #1554); FOCUSSHELL_SMOKE_MINUTES sets another limit,
+// for a real recorder check that records and processes at the end of the run.
 // FOCUSSHELL_SMOKE_THROW=main|page forces a failure, to check this.
 function smokeFail(where, e) {
   const text = `${new Date().toISOString()} smoke run failed in ${where}: ${(e && e.stack) || e}\n`;
@@ -142,7 +197,8 @@ if (HIDDEN) {
   try { fs.rmSync(path.join(P.smoke, 'error.txt'), { force: true }); } catch { /* none */ }
   process.on('uncaughtException', e => smokeFail('the main process', e));
   process.on('unhandledRejection', e => smokeFail('the main process', e));
-  setTimeout(() => smokeFail('the run', 'it did not finish within twelve minutes'), 12 * 60000).unref();
+  const limit = Number(process.env.FOCUSSHELL_SMOKE_MINUTES) > 0 ? Number(process.env.FOCUSSHELL_SMOKE_MINUTES) : 15;
+  setTimeout(() => smokeFail('the run', `it did not finish within ${limit} minutes`), limit * 60000).unref();
   if (process.env.FOCUSSHELL_SMOKE_THROW === 'main') setTimeout(() => { throw new Error('forced main process error (FOCUSSHELL_SMOKE_THROW=main)'); }, 8000);
 }
 // Page capture fails with the GPU compositor on some setups; software is fine for screenshots.
@@ -151,6 +207,7 @@ if (SMOKE) app.disableHardwareAcceleration();
 const ME_DATA = SMOKE ? path.join(P.smoke, 'data') : DECK;
 P.ideas = path.join(ME_DATA, 'ideas');
 P.sketches = path.join(ME_DATA, 'sketches');
+P.answerShots = path.join(ME_DATA, 'screenshots', 'answers'); // images pasted into a card's Answer box (#1731)
 const BUFFER_MAX = 400_000;
 
 let win = null;
@@ -273,16 +330,16 @@ function sessionSpec(id, resumeId, opts = {}) {
     const promptFile = promptFileFor(`cto-${g.name}`, placeRules('cto') + '\n\n' + renderGroupPrompt(read(P.groupTemplate), g.name, P.groups) + (extra ? `\n\n${extra}` : ''));
     return { cwd: MANAGER_DIR, args: withSettings(managerArgs(`cto-${g.name}`, promptFile, resumeId), ownSettingsFile()) };
   }
-  // A project's second lead shares its task file; it works in the project folder or,
-  // when asked, in its own git worktree.
-  const second = secondOf(id), name = second || id;
+  // A project's extra leads (2 to 5) share its task file; each works in the project folder
+  // or, when asked, in its own git worktree.
+  const extra = extraOf(id), name = projectOf(id);
   const proj = loadProjects().projects.find(p => p.name === name);
   if (!proj) throw new Error(`Unknown project ${name}`);
   if (nameProblem(name)) throw new Error(nameProblem(name)); // #388
   // Personal (#177): its own CLAUDE.md is its rules, no lead prompt or task file; its folder
   // is filled from the personal/ template the first time it opens.
   if (isPersonal(proj)) {
-    if (second) throw new Error(`${name} has no second lead`);
+    if (extra) throw new Error(`${name} has no extra leads`);
     fs.mkdirSync(proj.path, { recursive: true });
     seedPersonal(path.join(DECK, 'personal'), proj.path);
     return { cwd: proj.path, args: personalArgs(name, resumeId) };
@@ -292,12 +349,14 @@ function sessionSpec(id, resumeId, opts = {}) {
   const taskFile = path.join(P.tasks, `${name}.md`);
   if (!fs.existsSync(taskFile)) fs.writeFileSync(taskFile, `# ${name} tasks\n`);
   let prompt = renderLeadPrompt(read(P.leadTemplate), name, taskFile, proj.test, (DEMO ? 'demo-' : '') + managerFor(readGroups(), name), path.join(DECK, 'deck.mjs'));
-  const worktree = second && opts.worktree ? addWorktree(proj) : null;
-  if (second) prompt += secondLeadNote(name, worktree && { main: proj.path });
-  const lead = second ? `${name}-2` : name;
+  const worktree = extra && opts.worktree ? addWorktree(proj, extra.n) : null;
+  if (extra) prompt += extraLeadNote(name, extra.n, worktree && { main: proj.path });
+  const lead = extra ? `${name}-${extra.n}` : name;
   const promptFile = path.join(P.prompts, `lead-${lead}.md`);
   fs.writeFileSync(promptFile, prompt);
-  return { cwd: worktree || proj.path, args: leadArgs(lead, promptFile, second ? null : resumeId), worktree: worktree && proj };
+  // The effort-<level> skills (#2681), only when the folder is there, so a missing copy never stops a lead.
+  const plugin = path.join(APP_DIR, 'lead-plugin');
+  return { cwd: worktree || proj.path, args: leadArgs(lead, promptFile, extra ? null : resumeId, fs.existsSync(plugin) ? plugin : null), worktree: worktree && { proj, n: extra.n } };
 }
 
 // The pane's model from Settings (#142), read at each start so a change applies next start.
@@ -317,42 +376,50 @@ function demoed(spec) {
 // Settings > Projects (#1115), then FocusShell's own sessions' models.
 function modelled(id, spec, named) {
   let s = {}; try { s = JSON.parse(read(P.settings, '{}')); } catch { /* defaults */ }
-  const own = isMgr(id) || id === 'pm' ? '' : (findProject(String(id).replace(/:2$/, '')) || {}).model || '';
+  const own = isMgr(id) || id === 'pm' ? '' : (findProject(projectOf(id)) || {}).model || '';
   const model = named || own || modelFor(s, id), args = normalizeSettings(s).remoteControl ? spec.args : withoutRemote(spec.args);
-  return { ...spec, model, args: withModel(args, model) };
+  return { ...spec, model, args: withModel(normalizeSettings(s).classicView ? classicView(id, args) : args, model) };
+}
+// Classic view on (#1272): the session's own setting file, with the classic renderer added.
+function classicView(id, args) {
+  if (args[1] !== CLAUDE) return args;
+  let base = {}; const had = settingsFileOf(args);
+  if (had) try { base = JSON.parse(read(had, '{}')); } catch { /* none */ }
+  return withSettings(args, promptFileFor(`classic-${String(id).replace(/[^\w-]/g, '_')}`, JSON.stringify(classicSettings(base), null, 2), '.json'));
 }
 
-// The second lead's worktree: state/worktrees/<Project>-2 on branch lead-2, made from the
+// Extra lead n's worktree: state/worktrees/<Project>-<n> on branch lead-<n>, made from the
 // project's current branch, or reused while it is still there.
-const worktreeDir = proj => path.join(P.worktrees, `${proj.name}-2`);
+const worktreeDir = (proj, n) => path.join(P.worktrees, `${proj.name}-${n}`);
 function gitSync(cwd, args) {
-  try { return execFileSync('git', ['-C', cwd, ...args], { windowsHide: true, timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }).toString(); }
+  // Long paths on: without them git on Windows neither sees nor deletes a file whose path is
+  // over 260 characters (#2726), which left extra leads' worktrees half removed.
+  try { return execFileSync('git', ['-c', 'core.longpaths=true', '-C', cwd, ...args], { windowsHide: true, timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }).toString(); }
   catch (e) { throw new Error(String(e.stderr || e.message).trim().split('\n').pop()); }
 }
-function addWorktree(proj) {
-  const dir = worktreeDir(proj);
+function addWorktree(proj, n) {
+  const dir = worktreeDir(proj, n), branch = `lead-${n}`;
   if (fs.existsSync(path.join(dir, '.git'))) return dir;
   try { gitSync(proj.path, ['rev-parse', '--git-dir']); } catch { throw new Error(`${proj.name} is not a git repository, so it cannot have a worktree.`); }
   let hasBranch = true;
-  try { gitSync(proj.path, ['rev-parse', '--verify', '--quiet', 'refs/heads/lead-2']); } catch { hasBranch = false; }
+  try { gitSync(proj.path, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]); } catch { hasBranch = false; }
   fs.mkdirSync(P.worktrees, { recursive: true });
-  try { gitSync(proj.path, hasBranch ? ['worktree', 'add', dir, 'lead-2'] : ['worktree', 'add', '-b', 'lead-2', dir]); }
+  try { gitSync(proj.path, hasBranch ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir]); }
   catch (e) { throw new Error(`Could not make the worktree for ${proj.name}: ${e.message}`); }
   return dir;
 }
-// Once the second lead has ended: remove its worktree and branch when the branch is merged
-// into the project's current branch and nothing is left uncommitted. Says what it did.
-async function removeWorktree(proj) {
-  const dir = worktreeDir(proj);
+// Once an extra lead has ended: remove its worktree and branch when the branch and the
+// worktree's HEAD are merged into the project's current branch, nothing is left uncommitted,
+// and nothing in it would be harmed (a link out of it, a repository inside, #2726). Says what
+// it did.
+async function removeWorktree({ proj, n }) {
+  const dir = worktreeDir(proj, n), branch = `lead-${n}`;
   if (!fs.existsSync(dir)) return '';
-  try {
-    if (gitSync(dir, ['status', '--porcelain']).trim()) return `Worktree kept: ${dir} has uncommitted changes.`;
-    try { gitSync(proj.path, ['merge-base', '--is-ancestor', 'lead-2', 'HEAD']); }
-    catch { return `Worktree kept: branch lead-2 has commits not merged into ${proj.name}'s current branch.`; }
-  } catch (e) { return `Worktree kept: ${e.message}`; }
+  const why = await leadWorktreeRisk({ dir, projPath: proj.path, project: proj.name, branch });
+  if (why) return `Worktree kept: ${why}.`;
   // Windows holds the folder for a moment after the session's processes end.
   for (let i = 0; ; i++) {
-    try { gitSync(proj.path, ['worktree', 'remove', dir]); gitSync(proj.path, ['branch', '-d', 'lead-2']); return 'Worktree and branch lead-2 removed.'; }
+    try { gitSync(proj.path, ['worktree', 'remove', dir]); gitSync(proj.path, ['branch', '-d', branch]); return `Worktree and branch ${branch} removed.`; }
     catch (e) { if (i === 5) return `Worktree kept: could not remove it (${e.message}).`; await new Promise(r => setTimeout(r, 1000)); }
   }
 }
@@ -367,12 +434,13 @@ function openSession(id, resumeId, opts) {
   if (existing && existing.alive) { try { existing.pty.kill(); } catch { /* gone */ } }
   let spec;
   // In the smoke run a resume always fails at once, so Restart's fresh fallback is exercised.
-  try { spec = SMOKE ? { cwd: DECK, args: resumeId ? ['/c', 'echo No conversation found & exit /b 1'] : ['/k', `echo ${sessionName(id)} (smoke test, no Claude session)`] } : demoed(modelled(id, sessionSpec(id, resumeId, opts), opts.model)); }
+  try { spec = SMOKE ? { cwd: DECK, args: resumeId ? ['/c', WIN ? 'echo No conversation found & exit /b 1' : 'echo No conversation found; exit 1'] : ['/k', WIN ? `echo ${sessionName(id)} (smoke test, no Claude session)` : `echo '${sessionName(id)} (smoke test, no Claude session)'`] } : demoed(modelled(id, sessionSpec(id, resumeId, opts), opts.model)); }
   catch (e) { return { ok: false, error: e.message }; }
-  let line;
-  try { line = spawnArgs(keepShell(spec.args)); } catch (e) { return { ok: false, error: e.message }; }
-  const p = pty.spawn('cmd.exe', line, {
-    name: 'xterm-256color', cols: 120, rows: 30, cwd: spec.cwd, env: DEMO ? { ...cleanEnv(process.env), CLAUDE_CONFIG_DIR: DEMO_CLAUDE } : cleanEnv(process.env), useConpty: true,
+  let cmd;
+  try { cmd = WIN ? spawnArgs(keepShell(spec.args)) : posixSpawn(spec.args, process.env.SHELL); } catch (e) { return { ok: false, error: e.message }; }
+  const env = { ...(DEMO ? { ...cleanEnv(process.env), CLAUDE_CONFIG_DIR: DEMO_CLAUDE } : cleanEnv(process.env)), ...cmd.env };
+  const p = pty.spawn(cmd.file || 'cmd.exe', cmd.line, {
+    name: 'xterm-256color', cols: 120, rows: 30, cwd: spec.cwd, env, useConpty: true,
     // The ConPTY built into Windows drops mouse input, so Claude Code's screen could not
     // be scrolled with the wheel. node-pty ships the newer one Windows Terminal uses.
     useConptyDll: true,
@@ -461,29 +529,54 @@ function head(file, bytes) {
   try { const b = Buffer.alloc(bytes); return b.toString('utf8', 0, fs.readSync(fd, b, 0, bytes, 0)); } finally { fs.closeSync(fd); }
 }
 ipcMain.on('session:write', (_e, { id, data }) => { const s = sessions.get(id); if (s && s.alive) { if (submits(data)) s.used = true; s.typedAt = s.total; noteTyping(s, data); s.pty.write(data); } });
+// Smoke and try runs copy into a clipboard of their own (#1902): leads run many a day while the
+// owner works, and nothing they copy may reach the owner's clipboard or Win+V history.
+const standIn = SMOKE ? memoryClipboard() : null;
 // A Sketch (#94) lands in the prompt the way a pasted screenshot does: the PNG goes on the
-// clipboard and Claude Code's image-paste key (Alt+V on Windows) attaches it as [Image #n].
-// Nothing is submitted.
+// clipboard and Claude Code's image-paste key (Alt+V on Windows, Ctrl+V on a Mac) attaches it as [Image #n].
+// Nothing is submitted. What the owner had copied goes back once the pane shows the image (#1902).
 ipcMain.handle('sketch:paste', async (_e, { id, png }) => {
   const s = sessions.get(id);
   if (!s || !s.alive) return false;
+  if (standIn) { await standIn.writePng(png); s.pty.write(imagePasteKey()); return true; }
+  const kept = await keepClipboard(() => clipboard.read()), from = s.total;
   await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
-  s.pty.write('\x1bv');
+  s.pty.write(imagePasteKey());
+  whenTaken(() => plainText(s.buffer.slice(-Math.min(s.total - from, 4000))).includes('[Image'))
+    .then(() => putBack(clipboard, kept, r => new ClipboardItem(r))).catch(() => {});
   return true;
+});
+// Copy on a card (#107) goes through here, so a smoke run's copy stays in its own clipboard.
+ipcMain.handle('clip:copy', (_e, text) => (standIn || clipboard).writeText(String(text)));
+// The smoke run's clipboard: puts { text } or { png } on it, and says what is on it.
+if (SMOKE) ipcMain.handle('smoke:clip', async (_e, put) => {
+  if (put && put.png) await standIn.writePng(put.png); else if (put && put.text != null) await standIn.writeText(put.text);
+  return { text: await standIn.readText(), image: await standIn.has('image/png') };
+});
+// An image pasted or dropped into a card's Answer box (#1731), saved as a .png so its full
+// path can go in the ANSWER line for the CTO and the lead to open.
+ipcMain.handle('answer:image', (_e, png) => {
+  if (!png || !png.byteLength) return null;
+  fs.mkdirSync(P.answerShots, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+  const f = path.join(P.answerShots, `${stamp}-${Math.random().toString(36).slice(2, 6)}.png`);
+  fs.writeFileSync(f, Buffer.from(png));
+  return f;
 });
 // What a paste into a pane would bring (#352), asked synchronously while a key is handled:
 // the clipboard's text, else whether it holds an image (Claude Code attaches those on Alt+V).
 // Electron's clipboard is the promise-based one here; a sync reply can still be set once read.
 ipcMain.on('clipboard:kind', async e => {
   let text = '', image = false;
-  try { text = String(await clipboard.readText() || ''); if (!text) image = await clipboard.has('image/png'); } catch { /* unreadable */ }
+  const clip = standIn || clipboard;
+  try { text = String(await clip.readText() || ''); if (!text) image = await clip.has('image/png'); } catch { /* unreadable */ }
   e.returnValue = text ? { kind: 'text', text } : { kind: image ? 'image' : 'none' };
 });
 ipcMain.on('session:resize', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (s && s.alive && cols > 1 && rows > 1) { try { s.pty.resize(cols, rows); } catch { /* exited */ } }
 });
-// Ending a second lead that had a worktree also cleans the worktree up; the answer says how.
+// Ending an extra lead that had a worktree also cleans the worktree up; the answer says how.
 ipcMain.handle('session:kill', async (_e, id) => {
   const s = sessions.get(id);
   if (s && s.alive) {
@@ -523,8 +616,8 @@ setInterval(() => {
   const due = waitToasts.due(Date.now(), a => { const s = sessions.get(a.id); return !!s && s.alive && s.waiting === a.what; });
   if (!due.length || SMOKE || !Notification.isSupported() || !shouldToast('alert', using())) return;
   for (const { id, what } of due) {
-    const n = new Notification({ title: `lead-${id.replace(/:2$/, '-2')} is waiting on you`, body: what, icon: path.join(APP_DIR, 'build', 'icon.png') });
-    n.on('click', () => { if (win) { win.show(); win.focus(); send('nav:project', id.replace(/:2$/, '')); } });
+    const n = new Notification({ title: `${sessionName(id)} is waiting on you`, body: what, icon: path.join(APP_DIR, 'build', 'icon.png') });
+    n.on('click', () => { if (win) { win.show(); win.focus(); send('nav:project', projectOf(id)); } });
     n.show();
   }
 }, 15000);
@@ -534,7 +627,7 @@ ipcMain.handle('session:states', () => Object.fromEntries([...sessions].map(([id
 ipcMain.handle('tavern:helpers', () => activeHelpers([...sessions].filter(([, s]) => claudeOn(s)).map(([id, s]) => ({ id, cwd: s.cwd, startedAt: s.startedAt })),
   path.join(DEMO ? DEMO_CLAUDE : path.join(os.homedir(), '.claude'), 'projects')));
 // The chalkboard's token board (#246): the live panes' own conversations, read from the logs.
-const paneName = id => (id === 'cto' ? 'CTO' : id.startsWith('cto-') ? `CTO ${id.slice(4)}` : id === 'pm' ? 'PM' : `lead-${id.replace(/:2$/, '-2')}`);
+const paneName = id => (id === 'cto' ? 'CTO' : id.startsWith('cto-') ? `CTO ${id.slice(4)}` : id === 'pm' ? 'PM' : sessionName(id));
 // Real numbers (#288), but in Demo mode only from the demo's own Claude folder, so no real
 // project name reaches the recorded video (#314).
 const claudeProjects = () => path.join(DEMO ? DEMO_CLAUDE : path.join(os.homedir(), '.claude'), 'projects');
@@ -542,16 +635,17 @@ ipcMain.handle('tavern:tokens', () => sessionBoard(claudeProjects(),
     [...sessions].filter(([, s]) => claudeOn(s)).map(([id, s]) => ({ id, name: paneName(id), kind: id === 'pm' ? 'PM' : id.startsWith('cto') ? 'CTO' : 'lead', cwd: s.cwd, startedAt: s.startedAt }))));
 // The chalkboard's other tabs (#285): tokens today or this week by agent, the demo's own logs in
 // Demo mode (#314); tasks marked done on the boards. Its Commits tab asks commits:today (commits.js).
-ipcMain.handle('tavern:period', (_e, period) => periodBoard(claudeProjects(), periodStart(period)));
+ipcMain.handle('tavern:period', (_e, period) => periodBoard(claudeProjects(), periodStart(period), { projects: loadProjects().projects, roots: projectRoots() }));
 ipcMain.handle('tavern:tasksDone', () => tasksDone(readData().tasks));
 
 // The tap barrels (#279): the 5-hour allowance the status line last wrote; the owner's own, Demo mode too.
 ipcMain.handle('tavern:usage', () => fiveHour(path.join(os.homedir(), '.claude', 'usage')));
 
-// The longest of these Windows paths that exists, for links whose path contains spaces.
+// The longest of these paths that exists, for links whose path contains spaces.
+// "~/x" on a Mac is looked for under the home folder (onDisk).
 ipcMain.handle('path:longest', (_e, list) => {
-  const ok = (Array.isArray(list) ? list : []).filter(p => typeof p === 'string' && /^[A-Za-z]:[\\/]/.test(p));
-  return [...ok].reverse().find(p => { try { return fs.existsSync(path.normalize(p)); } catch { return false; } }) || null;
+  const ok = (Array.isArray(list) ? list : []).filter(p => typeof p === 'string' && isAbsPath(p));
+  return [...ok].reverse().find(p => { try { return fs.existsSync(onDisk(p)); } catch { return false; } }) || null;
 });
 
 // Bare file names from a pane, each resolved against the pane's folder and the folders
@@ -559,8 +653,8 @@ ipcMain.handle('path:longest', (_e, list) => {
 ipcMain.handle('path:names', (_e, { id, names, hints }) => {
   const s = sessions.get(id), dirs = [];
   for (const h of [s && s.cwd, ...(Array.isArray(hints) ? hints : [])]) {
-    if (typeof h !== 'string' || !/^[A-Za-z]:[\\/]/.test(h)) continue;
-    try { const p = path.normalize(h); dirs.push(fs.statSync(p).isDirectory() ? p : path.dirname(p)); } catch { /* not on disk */ }
+    if (typeof h !== 'string' || !isAbsPath(h)) continue;
+    try { const p = onDisk(h); dirs.push(fs.statSync(p).isDirectory() ? p : path.dirname(p)); } catch { /* not on disk */ }
   }
   return (Array.isArray(names) ? names : []).map(n => {
     if (typeof n !== 'string' || /[\\/]/.test(n)) return null;
@@ -585,7 +679,12 @@ while ($null -ne [Console]::In.ReadLine()) {
 }`;
 let voicePs = null;
 const bar = voiceBar(); // pressed only when it changes the bar (#1083)
-const winH = () => {
+// On a Mac (#2562) it is the Edit menu's Start Dictation, or Stop Dictation to end it, clicked
+// through System Events, which needs the Accessibility permission; without it the owner is told.
+// start: whether this press starts the voice (Windows' Win+H toggles, so it ignores it).
+const dictate = start => { execFile('osascript', ['-e', dictateScript(process.pid, start)], { timeout: 10000 }, err => { if (err) tellOnce(ACCESSIBILITY); }); return true; };
+const winH = (start = true) => {
+  if (!WIN) return dictate(start);
   if (!voicePs || voicePs.exitCode !== null) {
     voicePs = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(VOICE_PS, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
     voicePs.on('error', () => { voicePs = null; });
@@ -597,10 +696,10 @@ ipcMain.handle('voice:type', () => { if (SMOKE) return true; if (bar.open() && !
 // voice typing bar this app opened, so it does not sit on screen afterwards (#415).
 // The focus log (#1003): one line each time a pane loses the keyboard, while the switch is on.
 ipcMain.on('focus:log', (_e, line) => { try { fs.appendFileSync(path.join(SMOKE ? P.smoke : P.state, 'focus-log.txt'), String(line).slice(0, 2000) + '\n'); } catch { /* best effort */ } });
-ipcMain.handle('voice:stop', () => { if (SMOKE || !bar.close()) return false; return winH(); });
+ipcMain.handle('voice:stop', () => { if (SMOKE || !bar.close()) return false; return winH(false); });
 // A bar still open when FocusShell quits or its page reloads would otherwise outlive the box
 // that opened it and greet the owner at the next start (#1015): close it first.
-const voiceClose = () => { if (bar.close()) winH(); };
+const voiceClose = () => { if (bar.close()) winH(false); };
 app.on('will-quit', () => {
   // With a last Win+H queued, ending its input lets the PowerShell press it and exit by itself.
   if (voicePs) try { if (bar.isOpen) { voiceClose(); voicePs.stdin.end(); } else voicePs.kill(); } catch { /* gone */ }
@@ -610,8 +709,8 @@ app.on('will-quit', () => {
 ipcMain.handle('open:path', async (_e, target) => {
   const t = String(target || '').trim();
   if (/^https?:\/\//i.test(t)) { await shell.openExternal(t); return true; }
-  if (!/^[A-Za-z]:[\\/]/.test(t)) return false;
-  const p = path.normalize(t);
+  if (!isAbsPath(t)) return false;
+  const p = onDisk(t);
   try {
     if (fs.statSync(p).isDirectory()) { return (await shell.openPath(p)) === ''; }
     if (SMOKE) { console.log(`smoke: shown in Explorer ${p}`); return true; }
@@ -631,6 +730,8 @@ registerProjectPage({ ipcMain, P, DECK, read, readData, board, nowStamp, loadPro
 const { stopCodeWeb } = registerCodeWeb({ ipcMain, app, shell, P, SMOKE, sessions, findProject, loadProjects });
 registerStatus({ ipcMain, P, SMOKE });
 registerMissed({ ipcMain, P, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, cleanEnv });
+registerBackground({ ipcMain, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, live: claudeOn });
+registerWorktreeSweep({ app, SMOKE, DEMO, DECK, projects: () => loadProjects().projects, liveFolders: () => [...sessions.values()].filter(s => s.alive).map(s => s.cwd) });
 
 // ---------- shared files ----------
 function readData() {
@@ -640,17 +741,19 @@ function readData() {
 }
 registerMeFiles({ ipcMain, read, readData, today, P, board });
 registerHelper({ ipcMain, read, readData, today, cleanEnv, projectList, smoke: SMOKE, P, board });
+registerCardSummaries({ ipcMain, P, read, send, smoke: SMOKE, env: () => (DEMO ? { ...cleanEnv(process.env), CLAUDE_CONFIG_DIR: DEMO_CLAUDE } : cleanEnv(process.env)) });
 registerCatchup({ ipcMain, P, SMOKE, read, cleanEnv, projectList });
 registerSetupCheck({ ipcMain, SMOKE, env: () => (DEMO ? { ...cleanEnv(process.env), CLAUDE_CONFIG_DIR: DEMO_CLAUDE } : cleanEnv(process.env)) });
 // In-app updates (#1088): the installed app only.
 registerUpdater({ app, ipcMain, send: (ch, v) => send(ch, v), on: updatesOn({ packaged: app.isPackaged, smoke: SMOKE, tryRun: TRY, demo: DEMO }), smoke: SMOKE,
+  manual: !WIN, openPage: url => shell.openExternal(url),
   log: line => { try { fs.appendFileSync(path.join(P.state, 'update-log.txt'), `${nowStamp()} ${line}\n`); } catch { /* best effort */ } } });
 registerCommits({ ipcMain, SMOKE, projectList });
 // Plugins (#369): built-in features switched on in Settings; plugins-host.js owns them.
 // The hidden smoke run fakes what a plugin records and runs (fake), unless
 // FOCUSSHELL_RECORDER_REAL=1 asks for the real thing; smoke and try runs take no global keys
 // unless FOCUSSHELL_PLUGIN_KEYS=1.
-const plugins = registerPlugins({ ipcMain, P, SMOKE, send, services: pluginServices({ desktopCapturer, screen, data: path.dirname(P.ideas),
+const plugins = registerPlugins({ ipcMain, P, SMOKE, send, services: pluginServices({ desktopCapturer, screen, systemPreferences, mac: !WIN, data: path.dirname(P.ideas),
   lock: BOARD_LOCK(), projectList, cleanEnv, work: path.join(P.state, 'helper', 'work'), brainstorm: brainstormService }),
   fake: HIDDEN && process.env.FOCUSSHELL_RECORDER_REAL !== '1', keys: !SMOKE || process.env.FOCUSSHELL_PLUGIN_KEYS === '1' });
 // Read fresh each time, so a project added to projects.json or the projects folder needs no restart.
@@ -875,10 +978,16 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500, height: 900, minWidth: 900, minHeight: 560,
     backgroundColor: '#0e0e10', title: APP_NAME, autoHideMenuBar: true, show: !HIDDEN,
+    // A Mac fits a window to its screen; the hidden smoke window keeps its size on a small one,
+    // such as the Mac runner's 1024x684 (#2562).
+    enableLargerThanScreen: HIDDEN && !WIN,
     icon: path.join(APP_DIR, 'build', 'icon.ico'),
     webPreferences: { preload: path.join(APP_DIR, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: !HIDDEN },
   });
-  win.removeMenu();
+  // On a Mac the menu bar is the app's, not the window's: without one, Cmd+C, Cmd+V, Cmd+Q and
+  // Cmd+W do nothing (#2562), so it gets the standard app, Edit and Window menus.
+  if (WIN) win.removeMenu();
+  else Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
   guardWindow(win);
   if (HIDDEN) win.webContents.on('render-process-gone', (_e, d) => smokeFail('the page', `the page process ended (${d.reason}, exit code ${d.exitCode})`));
   // The taskbar right-click menu takes its name and icon from the running exe, which is
@@ -896,6 +1005,8 @@ function createWindow() {
   if (DEMO) win.on('page-title-updated', e => e.preventDefault());
   // The mouse's back and forward buttons (#301) reach the window as app commands on Windows.
   win.on('app-command', (_e, cmd) => { if (cmd === 'browser-backward' || cmd === 'browser-forward') send('nav:go', cmd === 'browser-backward' ? -1 : 1); });
+  // A Mac's trackpad swipes (#2562).
+  win.on('swipe', (_e, dir) => { if (dir === 'left' || dir === 'right') send('nav:go', dir === 'left' ? -1 : 1); });
   // The hidden smoke page acts as if focused, so the clipboard works without taking focus.
   if (HIDDEN) {
     try { win.webContents.debugger.attach('1.3'); } catch { /* attached already */ }
@@ -928,12 +1039,13 @@ function createWindow() {
 
 // Notifications go out under the ID 'FocusShell', which the Start Menu FocusShell shortcut
 // carries, so Windows names their sender FocusShell (#191). Electron keeps a Start Menu
-// "<exe product name>.lnk" with the process ID and rewrites it when it does not match:
-// the dev electron.exe is renamed FocusShell (build/name-electron.cjs) and install.ps1
-// writes that shortcut the way Electron expects, so it is left alone and there is no
-// "Electron.lnk" to take the taskbar icon (#150). The demo's window keeps its own taskbar
+// "<exe product name>.lnk" with the process ID and writes one, without the app folder
+// argument, when no Start Menu shortcut carries this ID: the dev electron.exe is renamed
+// FocusShell (build/name-electron.cjs) and install.ps1 writes that shortcut with this ID,
+// so it is left alone and there is no "Electron.lnk" to take the taskbar icon (#150). After
+// a rename of this ID, run install.ps1 again (#2256). The demo's window keeps its own taskbar
 // ID; its process uses this one too, or its notifications would rewrite the shortcut.
-app.setAppUserModelId('FocusShell');
+if (WIN) app.setAppUserModelId('FocusShell');
 
 // The demo's sessions use their own Claude folder (#135): none of the owner's global rules,
 // memory, plugins or status line, and a sign-in of their own the first time.
@@ -979,8 +1091,8 @@ app.whenReady().then(() => {
   if (SMOKE && !TRY) resetSmokeMe(P);
   // A file in a folder with a space, for the smoke run's link check (#350).
   if (SMOKE && !TRY) { const d = path.join(P.smoke, 'with space', 'media'); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'map-1080x1350.mp4'), ''); }
-  // A video editor's project file, for the binary link check (#317).
-  if (SMOKE && !TRY) fs.writeFileSync(path.join(P.smoke, 'intro-rough-2.editbay'), '');
+  // A file of a program of the owner's own (else a design file), for the binary link check (#317).
+  if (SMOKE && !TRY) fs.writeFileSync(path.join(P.smoke, `intro-rough-2.${OWN_APP_FILES[0] || 'psd'}`), '');
   if (!SMOKE && !DEMO) keepOldSettings();
   // Plugins start here, not at load: a global shortcut can only be taken once the app is ready.
   {
@@ -996,7 +1108,7 @@ app.whenReady().then(() => {
   // The tavern room's code and art, fresh from the tavern folder in development (#246).
   if (!app.isPackaged) try { copyRoom(); } catch (e) { console.error('tavern room copy:', e.message); }
   createWindow();
-  if (!SMOKE && !DEMO) registerGlobalTalk({ app, sessions, send, voiceMode })(win);
+  if (!SMOKE && !DEMO) registerGlobalTalk({ app, sessions, send, voiceMode, appDir: APP_DIR })(win);
 });
 
 // Leads and other sessions find their task file through the global backlog skill. It names

@@ -31,6 +31,18 @@ test('every file the app imports is in the installer file list (#287)', () => {
   assert.deepEqual(missing, [], `not in build.files: ${missing.join(', ')}`);
 });
 
+// #2681: every lead starts with --plugin-dir <app>/lead-plugin, so an installed copy needs it.
+test('the installer ships the lead plugin and its effort skills (#2681)', () => {
+  const files = JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8')).build.files;
+  assert.ok(files.includes('lead-plugin/**'), 'build.files does not ship lead-plugin/**');
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) {
+    const skill = fs.readFileSync(path.join(APP, 'lead-plugin', 'skills', `effort-${level}`, 'SKILL.md'), 'utf8');
+    assert.match(skill, new RegExp(`^name: effort-${level}\\r?$`, 'm'));
+    assert.match(skill, new RegExp(`^effort: ${level}\\r?$`, 'm'));
+  }
+  assert.equal(JSON.parse(fs.readFileSync(path.join(APP, 'lead-plugin', '.claude-plugin', 'plugin.json'), 'utf8')).name, 'focusshell');
+});
+
 // #388: the CTO's rules run these from the data folder, so an installed copy needs them.
 test('the installer seed ships the pane scripts and their module (#388)', () => {
   const seed = fs.readFileSync(path.join(APP, 'build', 'seed.mjs'), 'utf8');

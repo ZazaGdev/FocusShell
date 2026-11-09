@@ -1,5 +1,5 @@
-// The recorder's overlay (#376): drag a rectangle over the dimmed display, toggle the mic, press
-// Record (or Enter). Esc, Cancel or a click outside the bar with no drag closes it.
+// The recorder's overlay (#376), one per display (#1481): drag a rectangle over any dimmed
+// display, toggle the mic, press Record (or Enter). Esc, Cancel or a click outside the bar with no drag closes it.
 'use strict';
 (async () => {
   const MIN = 32;
@@ -27,7 +27,7 @@
     return s;
   };
 
-  const micBtn = el('button', { class: 'tbtn', onclick: () => { mic = !mic; paint(); } });
+  const micBtn = el('button', { class: 'tbtn', onclick: () => { mic = !mic; window.recwin.send('mic', mic); paint(); } });
   const recBtn = el('button', { class: 'tbtn rec', onclick: () => record() }, el('span', { class: 'dot' }), 'Record');
   const cancelBtn = el('button', { class: 'tbtn', title: 'Cancel (Esc)', onclick: () => window.recwin.send('cancel') }, 'Cancel');
   tools.append(micBtn, recBtn, cancelBtn);
@@ -50,6 +50,7 @@
     if (e.button !== 0 || tools.contains(e.target)) return;
     from = { x: e.clientX, y: e.clientY };
     rect = null;
+    window.recwin.send('drag'); // the overlay on another display lets go of its area (#1481)
     document.body.classList.add('drag');
     paint();
   });
@@ -63,6 +64,12 @@
     from = null;
     document.body.classList.remove('drag');
     if (rect && (rect.width < MIN || rect.height < MIN)) rect = null;
+    paint();
+  });
+  // The overlay on another display: an area marked there clears this one, and the mic follows.
+  window.recwin.onState(s => {
+    if (s.clear) { rect = null; from = null; document.body.classList.remove('drag'); }
+    if (typeof s.mic === 'boolean') mic = s.mic;
     paint();
   });
   document.addEventListener('keydown', e => {

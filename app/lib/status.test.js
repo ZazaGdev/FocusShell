@@ -4,7 +4,53 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseStatus, setStatus, refreshDue, refreshLine, workStep, IDLE_MS, sortLeads, leadState, leadTask } from './status.js';
+import { parseStatus, setStatus, refreshDue, refreshLine, workStep, IDLE_MS,sortLeads, leadState, leadTask, leadDot, outputStep, printing, GAP_MS, HOLD_MS } from './status.js';
+
+test('leadDot: orange only while the lead waits on the owner, from its own pane (#1756)', () => {
+  assert.deepEqual(leadDot({ prompt: 'Do you want to proceed?' }), { state: 'needs', tip: 'Waits on you: Do you want to proceed?' });
+  assert.deepEqual(leadDot({ asked: 'Which colours?' }), { state: 'needs', tip: 'Waits on your answer: Which colours?' });
+  assert.equal(leadDot({ asked: 'Which colours?', active: true }).state, 'working', 'answered and working again');
+  assert.deepEqual(leadDot({}), { state: 'idle', tip: 'Idle' }, 'nothing waits: hollow, whatever its board holds');
+  assert.deepEqual(leadDot({ active: true }), { state: 'working', tip: 'Working' });
+  assert.equal(leadDot({ exited: true, prompt: 'x' }).state, 'ended');
+});
+
+test('leadDot: purple while a lead\'s background shell or subagent still runs, orange still wins (#2706)', () => {
+  assert.deepEqual(leadDot({ back: '1 shell' }), { state: 'working', tip: 'Working in the background: 1 shell' }, 'turn ended, smoke run still going');
+  assert.deepEqual(leadDot({ back: '1 shell', active: true }), { state: 'working', tip: 'Working' });
+  assert.equal(leadDot({ back: '1 shell', asked: 'Which colours?' }).state, 'needs', 'a NEEDS YOU while a shell runs');
+  assert.equal(leadDot({ back: '1 shell', prompt: 'Do you want to proceed?' }).state, 'needs', 'a permission prompt while a shell runs');
+  assert.equal(leadDot({ back: null }).state, 'idle', 'everything ended: hollow');
+  assert.equal(leadDot({ back: '1 shell', exited: true }).state, 'ended');
+});
+
+import { runningSubagents } from './history.js';
+test('runningSubagents: a background subagent runs until Claude Code marks its meta file finished (#2706)', () => {
+  const bg = { agentType: 'general-purpose', requestShape: 'background' };
+  assert.equal(runningSubagents([bg]), 1, 'started, not finished yet');
+  assert.equal(runningSubagents([{ ...bg, finished: true }, bg, bg]), 2);
+  assert.equal(runningSubagents([{ requestShape: 'foreground' }]), 0, 'a foreground subagent keeps the turn itself running');
+  assert.equal(runningSubagents([null, { ...bg, finished: true }]), 0);
+  assert.equal(runningSubagents(undefined), 0);
+});
+
+// Output at these times (ms), one step per chunk; the state after the last.
+const fed = times => times.reduce((o, t) => outputStep(o, t), null);
+test('printing: a turn\'s steady spinner lights the dot, an idle pane\'s burst never does (#2706)', () => {
+  const spinner = Array.from({ length: 40 }, (_, i) => 10000 + i * 120); // 4.8 s of frames
+  assert.equal(printing(fed(spinner.slice(0, 5)), 10500), false, 'half a second in: not yet');
+  assert.equal(printing(fed(spinner), 14700), true, 'printing steadily for over RUN_MS: working');
+  assert.equal(printing(fed(spinner), 14680 + HOLD_MS - 1), true, 'a short pause keeps it lit');
+  assert.equal(printing(fed(spinner), 14680 + HOLD_MS), false, 'quiet for HOLD_MS: idle');
+  // The recap Claude Code prints minutes after a turn, or a redraw after a resize: one burst.
+  const recap = [200000, 200010, 200150, 200400];
+  assert.equal(printing(fed([...spinner, ...recap]), 200500), false, 'a burst long after the turn does not light it');
+  assert.equal(printing(fed(recap), 200500), false);
+  // Bursts further apart than GAP_MS never join up into a run.
+  const ticks = Array.from({ length: 10 }, (_, i) => 300000 + i * (GAP_MS + 1));
+  assert.equal(printing(fed(ticks), ticks.at(-1) + 10), false, 'a status line ticking now and then stays idle');
+  assert.equal(printing(null, 1000), false, 'no output yet');
+});
 
 test('status: rows A to Z with a lead and its second together, and a state per lead (#413)', () => {
   const names = ['lead-Cliptools', 'lead-Brewlog', 'lead-Atlas', 'lead-Brewlog-2', 'lead-Roadmapper', 'lead-Atlas-2'];
@@ -38,16 +84,31 @@ test('status: a lead line is set, kept to one line, and a bad name or empty line
   assert.equal(setStatus(st, 'lead-X', 'y'.repeat(300), 1).leads['lead-X'].line.length, 200);
 });
 
-test('status: a refresh is due once the picked interval has passed and a lead changed or is busy, busy CTO or not (#1034)', () => {
+test('status: an active owner gets no refresh; one comes after the picked idle time while a lead is busy or changed (#1699)', () => {
   const M = 60000, now = 1000 * M;
-  assert.equal(refreshDue({ now, askedAt: 0, leadLast: now - 1000 }), true);
-  assert.equal(refreshDue({ now, askedAt: now - 29 * M, leadLast: now - 1000 }), false, 'asked 29 min ago, default 30');
-  assert.equal(refreshDue({ now, askedAt: now - 30 * M, leadLast: now - 1000 }), true, '30 min passed');
-  assert.equal(refreshDue({ now, askedAt: now - 6 * M, leadLast: now - 1000, every: 5 * M }), true, '5 min chosen');
-  assert.equal(refreshDue({ now, askedAt: now - 90 * M, leadLast: now - 1000, every: 120 * M }), false, '2 h chosen');
-  assert.equal(refreshDue({ now, askedAt: now - 31 * M, leadLast: now - 40 * M }), false, 'nothing changed, nobody busy');
-  assert.equal(refreshDue({ now, askedAt: now - 31 * M, leadLast: now - 40 * M, busy: true }), true, 'a lead busy all along');
+  // Active: a key or click a minute, ten or 29 minutes ago holds every ask, however busy the leads.
+  for (const ago of [0, M, 10 * M, 29 * M]) assert.equal(refreshDue({ now, ownerAgo: ago, leadLast: now - 1000, busy: true }), false, `active ${ago / M} min ago`);
+  assert.equal(refreshDue({ now, ownerAgo: 30 * M, leadLast: now - 1000 }), true, 'idle 30 min, a lead changed');
+  assert.equal(refreshDue({ now, ownerAgo: 30 * M, busy: true }), true, 'idle 30 min, a lead busy');
+  assert.equal(refreshDue({ now, ownerAgo: 30 * M, leadLast: now - 60 * M, askedAt: now - 50 * M }), false, 'nothing changed since the last ask, nobody busy');
+  assert.equal(refreshDue({ now, ownerAgo: 6 * M, busy: true, idle: 5 * M }), true, '5 min chosen');
+  assert.equal(refreshDue({ now, ownerAgo: 90 * M, busy: true, idle: 120 * M }), false, '2 h chosen');
+  assert.equal(refreshDue({ now, ownerAgo: 40 * M, busy: true, draft: true }), false, 'a draft sits in the prompt');
   assert.equal(refreshLine(['lead-A', 'lead-B']), 'STATUS REFRESH: lead-A, lead-B');
+});
+
+test('status: two refreshes per idle stretch, at the idle time and twice it, then none until the owner is back (#1699)', () => {
+  const M = 60000, t0 = 1000 * M; // the owner's last key or click
+  const at = (idleMin, askedAt) => refreshDue({ now: t0 + idleMin * M, ownerAgo: idleMin * M, askedAt, busy: true });
+  assert.equal(at(30, 0), true, 'first ask at 30 min');
+  assert.equal(at(45, t0 + 30 * M), false, 'asked at 30, not again at 45');
+  assert.equal(at(60, t0 + 30 * M), true, 'second ask at 60 min');
+  for (const m of [61, 90, 180, 600]) assert.equal(at(m, t0 + 60 * M), false, `none at ${m} min`);
+  // Back at the keys after that, away again: the new stretch gets its own two.
+  const t1 = t0 + 200 * M;
+  assert.equal(refreshDue({ now: t1 + 30 * M, ownerAgo: 30 * M, askedAt: t0 + 60 * M, busy: true }), true, 'a new idle stretch');
+  // Nothing new and nobody busy at the 60-minute mark: no second ask.
+  assert.equal(refreshDue({ now: t0 + 60 * M, ownerAgo: 60 * M, askedAt: t0 + 30 * M, leadLast: t0 + 10 * M }), false);
 });
 
 test('status: an idle lead\'s recaps and redraws are not work; starting and finishing are, once each (#392)', () => {
@@ -69,8 +130,8 @@ test('status: an idle lead\'s recaps and redraws are not work; starting and fini
   assert.equal(w.changedAt, finished, 'idle again: nothing new');
   // Asked after the finish: no second ask for the same state.
   const now = finished + IDLE_MS;
-  assert.equal(refreshDue({ now, askedAt: 0, leadLast: w.changedAt, every: IDLE_MS }), true);
-  assert.equal(refreshDue({ now: now + IDLE_MS, askedAt: now, leadLast: w.changedAt, every: IDLE_MS }), false);
+  assert.equal(refreshDue({ now, askedAt: 0, leadLast: w.changedAt, idle: IDLE_MS }), true);
+  assert.equal(refreshDue({ now: now + IDLE_MS, askedAt: now, leadLast: w.changedAt, idle: IDLE_MS }), false);
 });
 
 test('status: deck status writes a line and prints them all', () => {

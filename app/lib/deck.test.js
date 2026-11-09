@@ -37,6 +37,7 @@ test('deck add, mark done with a result, detail, answer and title keep what was 
   assert.deepEqual(t1.details, ['Compare GitHub Pages and Netlify', 'Done: 2026-10-07 16:05', `Full report: ${NASTY}`], 'the old detail stays');
   run(['add', 'Demo', 'Pick a font'], c);
   run(['mark', 'Demo', '1001', 'needs'], c);
+  assert.deepEqual(item(c, 1001).details, ['Waiting: 2026-10-07 16:05'], 'marked needs you: when it started waiting (#2703)');
   run(['answer', 'Demo', '1001', 'b: the serif one'], c);
   run(['title', 'Demo', '1001', 'Pick the heading font'], c);
   const t3 = item(c, 1001);
@@ -173,6 +174,10 @@ test('a words request is checked before it can become a card (#228)', () => {
   assert.match(parseRequest('a', 'not json', now).error, /not JSON/);
   assert.equal(parseRequest('a', '\uFEFF' + JSON.stringify({ project: 'P', words: 'x' }), now).words, 'x', 'PowerShell writes a byte-order mark');
   assert.equal(sessionOfLead('P', 'lead-P'), 'P'); assert.equal(sessionOfLead('P', 'lead-P-2'), 'P:2');
+  // Leads 3 to 5 (#1485): the request names the number; a sixth is refused.
+  assert.equal(parseRequest('a', JSON.stringify({ project: 'P', words: 'x', n: 4 }), now).lead, 'lead-P-4');
+  assert.match(parseRequest('a', JSON.stringify({ project: 'P', words: 'x', n: 6 }), now).error, /not 2 to 5/);
+  assert.equal(sessionOfLead('P', 'lead-P-5'), 'P:5'); assert.equal(sessionOfLead('P', 'lead-P-6'), 'P');
   assert.equal(ctoLine(ok, 'typed'), String.raw`WORDS Cliptools #18: the owner approved; typed into lead-Cliptools: "yes, edit C:\Users\me\.claude\skills\iterate\SKILL.md"`);
   assert.equal(ctoLine(ok, 'declined'), 'WORDS Cliptools #18: the owner declined; nothing typed into lead-Cliptools');
 });

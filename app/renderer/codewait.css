@@ -2,6 +2,9 @@
 .codeslot .codewait{width:min(440px,100%);max-width:440px;display:flex;flex-direction:column;gap:12px;text-align:left;color:var(--text2);font-size:12.5px;padding:18px 0;max-height:100%;overflow:auto}
 .codewait h3{margin:0;font-size:14px;color:var(--text)}
 .codewait p{margin:0}
+/* The first pane's question before the download (#1124). */
+.codeask b{font-size:14px;color:var(--text)}
+.codeask p{line-height:1.55;word-break:break-word}
 .cwsteps{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
 .cwst{display:flex;align-items:center;gap:8px;color:var(--muted)}
 .cwst.done{color:var(--text2)}

@@ -10,9 +10,9 @@ import manifest from './manifest.js';
 import { newSession, next, pickCurrent, STEPS } from './lib/session.js';
 import { cropFor } from './lib/area.js';
 import { areaWindows } from './area.js';
-import { writesFor, ctoLine } from './lib/send.js';
+import { writesFor, ctoLine, talkLine, noCtoReason } from './lib/send.js';
 import { createRecording, save, loadAll, append, size, remove, videoFile } from './store.js';
-import { STEP_RUN, killAll, findWhisperCli } from './process.js';
+import { STEP_RUN, killAll, whisperCli, thumbnail } from './process.js';
 import { brainstormer } from './brainstorm.js';
 import { expired, keptPath } from './lib/cleanup.js';
 
@@ -20,11 +20,11 @@ export function activate(host) {
   const root = host.dir;
   let cur = pickCurrent(loadAll(root)), busy = false, stopped = false;
   const dirOf = s => path.join(root, s.id);
-  // The real check in a smoke run marks its area from FOCUSSHELL_RECORDER_AREA ('x,y,w,h,on|off')
-  // instead of a drag.
+  // The real check in a smoke run marks its area from FOCUSSHELL_RECORDER_AREA
+  // ('x,y,w,h,on|off[,display id]') instead of a drag; without an id, on the display under the mouse.
   const auto = (() => {
-    const m = host.smoke && String(process.env.FOCUSSHELL_RECORDER_AREA || '').match(/^(\d+),(\d+),(\d+),(\d+),(on|off)$/);
-    return m ? { rect: { x: +m[1], y: +m[2], width: +m[3], height: +m[4] }, mic: m[5] === 'on' } : null;
+    const m = host.smoke && String(process.env.FOCUSSHELL_RECORDER_AREA || '').match(/^(\d+),(\d+),(\d+),(\d+),(on|off)(?:,(\d+))?$/);
+    return m ? { rect: { x: +m[1], y: +m[2], width: +m[3], height: +m[4] }, mic: m[5] === 'on', display: m[6] || null } : null;
   })();
   const area = host.fake ? null : areaWindows({ log: host.log, quiet: !!auto, keys: host.keys !== false });
   // The mic choice, kept for the next recording.
@@ -119,6 +119,8 @@ export function activate(host) {
   function accept(ids, cto) {
     if (!cur || cur.state !== 'review') return { error: 'Nothing to accept' };
     const want = ids === 'all' ? cur.cards.filter(c => c.status === 'open').map(c => c.id) : [].concat(ids || []);
+    const unplaced = cur.cards.filter(c => want.includes(c.id) && c.status === 'open' && !c.project).length;
+    if (unplaced) return { error: `${unplaced === 1 ? 'A card has' : `${unplaced} cards have`} no project yet. Pick one in "This recording is about" or on the card` };
     apply({ type: 'send', ids: want, cto: cto === true });
     if (!cur || cur.state !== 'sending') return { error: 'Nothing to accept' };
     const s = cur, transcript = path.join(dirOf(s), 'transcript.md');
@@ -147,19 +149,21 @@ export function activate(host) {
     }
     const cl = line();
     apply({ type: 'sent' });
-    return { placed: batch.length, cto: cl };
+    return { placed: batch.length, cto: cl, why: cto === true && !cl ? noCtoReason(batch) : null };
   }
 
   host.handle('state', () => view());
   // Settings' dropdowns (#407): what was found for a setting, and Choose... for another folder or file.
   const defaults = Object.fromEntries(manifest.settings.map(f => [f.key, f.default]));
-  host.handle('choices', key => choicesFor(String(key), host.settings(), { env: process.env, defaults, findCli: findWhisperCli }));
+  host.handle('choices', key => choicesFor(String(key), host.settings(), { env: process.env, defaults, findCli: d => whisperCli(d) }));
   host.handle('pickPath', async key => {
     const f = manifest.settings.find(x => x.key === key && x.pick);
     if (!f) return null;
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const r = await dialog.showOpenDialog(win, f.pick === 'file'
-      ? { title: f.label, properties: ['openFile'], filters: [{ name: 'Programs', extensions: ['exe'] }] }
+      // A Mac's programs have no .exe, and may sit inside an app bundle (#2562).
+      ? (process.platform === 'win32' ? { title: f.label, properties: ['openFile'], filters: [{ name: 'Programs', extensions: ['exe'] }] }
+        : { title: f.label, properties: ['openFile', 'treatPackageAsDirectory'] })
       : { title: f.label, properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0] || null;
   });
@@ -207,6 +211,8 @@ export function activate(host) {
     host.handle('windows', () => (area ? area.openKinds() : []));
     host.handle('drawTest', () => (area ? area.drawTest() : false));
   }
+  // What the mic hears (#1792), for the bar's mic icon: 'live', 'quiet' or 'muted'.
+  host.handle('voice', state => { if (area) area.voice(state); return true; });
   host.handle('chunk', (id, bytes) => {
     if (!cur || cur.id !== id || cur.state !== 'recording') return false;
     append(dirOf(cur), Buffer.from(bytes));
@@ -236,6 +242,7 @@ export function activate(host) {
   host.handle('edit', (id, patch) => { apply({ type: 'edit', id, patch }); return true; });
   host.handle('dropShot', (id, p) => { apply({ type: 'dropShot', id, path: p }); return true; });
   host.handle('drop', id => { apply({ type: 'drop', id }); return true; });
+  host.handle('about', project => { apply({ type: 'about', project }); return true; });
   host.handle('restore', id => { apply({ type: 'restore', id }); return true; });
   host.handle('accept', (ids, cto) => accept(ids, cto));
   // Stage 4: the brainstorm beside the review, its proposal's Undo, and "Update the cards".
@@ -248,7 +255,7 @@ export function activate(host) {
   // Discard all. Once a card is on a board its screenshots live in this folder, so the files stay.
   host.handle('discard', keep => {
     if (!cur || next(cur, { type: 'discard' }) === cur) return false; // not while processing
-    const dir = dirOf(cur), placed = (cur.cards || []).some(c => c.status === 'accepted');
+    const dir = dirOf(cur), placed = (cur.cards || []).some(c => c.status === 'accepted') || !!(cur.earlier || []).length;
     killAll();
     if (area) area.closeRecording();
     apply({ type: 'discard' });
@@ -269,12 +276,54 @@ export function activate(host) {
     if (host.smoke) { host.log(`open ${what}`); return true; }
     return shell.openPath(f[what]).then(err => err === '');
   });
-  // Past recordings (#384), newest first, for the Recordings list in Plugins > Screen recorder.
-  host.handle('list', () => loadAll(root).filter(s => s && s.id).sort((a, b) => b.startedAt - a.startedAt).map(s => ({
-    id: s.id, state: s.state, startedAt: s.startedAt, stoppedAt: s.stoppedAt, current: !!cur && cur.id === s.id,
-    cards: (s.cards || []).length, accepted: (s.cards || []).filter(c => c.status === 'accepted').length,
+  // Past recordings (#384), newest first, for the Recordings list in Plugins > Screen recorder
+  // and the Recorded videos modal (#1482). The open one is read from memory, so it is up to date.
+  host.handle('list', () => loadAll(root).filter(s => s && s.id).map(s => (cur && cur.id === s.id ? cur : s)).sort((a, b) => b.startedAt - a.startedAt).map(s => ({
+    id: s.id, state: s.state, startedAt: s.startedAt, stoppedAt: s.stoppedAt, current: !!cur && cur.id === s.id, mic: s.mic !== false,
+    cards: (s.cards || []).length, accepted: (s.cards || []).filter(c => c.status === 'accepted').length, open: (s.cards || []).filter(c => c.status === 'open').length,
+    titles: (s.cards || []).filter(c => c.status !== 'dropped').map(c => c.title),
     video: size(videoFile(dirOf(s))) > 0, transcript: fs.existsSync(path.join(dirOf(s), 'transcript.md')),
   })));
+  // A recording's small picture for the Recorded videos modal, as a data URL (#1482).
+  host.handle('thumb', async id => {
+    if (host.fake) return null;
+    const s = loadAll(root).find(x => x && x.id === String(id));
+    if (!s || (cur && cur.id === s.id && cur.state === 'recording')) return null;
+    try {
+      const f = await thumbnail(dirOf(s), host.settings());
+      return f ? 'data:image/jpeg;base64,' + fs.readFileSync(f).toString('base64') : null;
+    } catch (e) { host.log(`thumb ${s.id}: ${e.message}`); return null; }
+  });
+  // Regenerate tasks (#1482): a finished recording becomes the open one again and its transcript
+  // goes through the card step once more; the new cards replace the old ones in the review (#2185).
+  host.handle('regenerate', id => {
+    if (cur) return { error: cur.id === String(id) ? 'This recording is still open' : 'Finish the open recording first' };
+    const s = loadAll(root).find(x => x && x.id === String(id));
+    if (!s) return { error: 'No such recording' };
+    if (!fs.existsSync(path.join(dirOf(s), 'transcript.json'))) return { error: 'This recording has no transcript to read' };
+    const n = next(s, { type: 'regenerate' });
+    if (n === s) return { error: 'Only a finished recording can be read again' };
+    cur = n;
+    try { save(dirOf(cur), cur); } catch (e) { host.log(`save ${cur.id}: ${e.message}`); }
+    tell();
+    processNow();
+    return { ok: true };
+  });
+  // Talk to agent (#1482): the line that hands one recording to the main CTO to discuss.
+  host.handle('talk', id => {
+    const s = (cur && cur.id === String(id) && cur) || loadAll(root).find(x => x && x.id === String(id));
+    if (!s) return null;
+    const dir = dirOf(s), md = path.join(dir, 'transcript.md'), d = new Date(s.startedAt), p = n => String(n).padStart(2, '0');
+    return talkLine({ title: `Recording ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,
+      transcript: fs.existsSync(md) ? md : null, video: videoFile(dir), cards: (s.cards || []).filter(c => c.status !== 'dropped') });
+  });
+  // Deletes one past recording (#1482), the way Delete all does; never the open one.
+  host.handle('deleteOne', id => {
+    if (cur && cur.id === String(id)) return { error: 'This recording is still open' };
+    if (!loadAll(root).some(x => x && x.id === String(id))) return { error: 'No such recording' };
+    const r = sweepAll([String(id)]);
+    return r.failed ? { error: 'It could not be deleted' } : { ok: true };
+  });
   // Opens one past recording's video, transcript or folder; only a folder that holds a recording.
   host.handle('openPast', (id, what) => {
     const s = loadAll(root).find(x => x && x.id === String(id));

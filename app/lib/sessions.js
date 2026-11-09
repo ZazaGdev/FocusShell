@@ -8,8 +8,11 @@ export const CLAUDE = 'claude';
 
 const resumed = (args, resumeId) => (resumeId && /^[0-9a-f-]{36}$/i.test(resumeId) ? [...args, '--resume', resumeId] : args);
 
-export function leadArgs(name, promptFile, resumeId) {
-  return resumed(['/c', CLAUDE, '-n', `lead-${name}`, '--remote-control', `lead-${name}`, '--permission-mode', 'auto', '--append-system-prompt-file', promptFile], resumeId);
+// pluginDir: the app's lead-plugin folder (#2681), whose effort-<level> skills let a lead set
+// the effort for the task in hand. Only leads load it; left out when not given.
+export function leadArgs(name, promptFile, resumeId, pluginDir) {
+  const args = ['/c', CLAUDE, '-n', `lead-${name}`, '--remote-control', `lead-${name}`, '--permission-mode', 'auto', '--append-system-prompt-file', promptFile];
+  return resumed(pluginDir ? [...args, '--plugin-dir', pluginDir] : args, resumeId);
 }
 
 // The main CTO is `cto`; a group's CTO is `cto-<Group>` with its group rules appended.
@@ -25,7 +28,7 @@ export function pmArgs(resumeId, promptFile) {
 }
 
 // The name a pane's session runs under, which Claude Code records in its session file.
-export const sessionName = (id, prefix = '') => prefix + (id === 'pm' || id === 'cto' || String(id).startsWith('cto-') ? id : `lead-${String(id).replace(/:2$/, '-2')}`);
+export const sessionName = (id, prefix = '') => prefix + (id === 'pm' || id === 'cto' || String(id).startsWith('cto-') ? id : `lead-${String(id).replace(/:([2-5])$/, '-$1')}`);
 
 // The Claude model a session starts on (#142); '' or anything unknown leaves Claude's default.
 export const withModel = (args, model) => (/^(fable|opus|sonnet|haiku)$/.test(model || '') ? [...args, '--model', model] : args);
@@ -38,29 +41,48 @@ export function keepShell(args) {
   if (args[0] !== '/c' || args[1] !== CLAUDE) return args;
   return ['/k', ...args.slice(1), '&', 'title', CLAUDE_ENDED, '&', 'echo', '[FocusShell]', 'Claude', 'has', 'exited.', 'This', 'pane', 'is', 'a', 'normal', 'shell', 'now.'];
 }
-// cmd.exe runs every session, so a project folder name holding one of these would be read as
-// cmd syntax: "R&D" would start lead-R and then run D (#388). Such a project does not start.
-const CMD_META = /[&|<>^%!()"]/;
-export function nameProblem(name) {
-  const m = String(name).match(CMD_META);
-  return m ? `cannot start: the folder name "${name}" holds ${m[0]}, which the Windows command line reads as a command. Rename the folder.` : null;
+// cmd.exe runs every session, and a folder name such as "R&D" or "New folder - Copy (4)" used
+// to be read as cmd syntax (#388), so such projects were refused. Now any argument holding
+// a space or a character cmd treats specially goes in an environment variable instead, and the
+// command line names it as "!FS_An!": cmd, started with /V:ON, expands those only after it has
+// parsed the line, so the value is passed as it is and nothing in it runs (#1126). A folder
+// name Windows itself allows always starts; only " (which Windows does not allow) is refused.
+// A Mac passes every argument as it is (posixSpawn), so no name is refused there (#2562).
+export function nameProblem(name, platform = process.platform) {
+  return platform === 'win32' && /"/.test(String(name)) ? `cannot start: the folder name "${name}" holds ", which Windows does not allow in a folder name.` : null;
 }
 
-// The command line for cmd.exe, built here rather than by node-pty, which quotes only arguments
-// with spaces (#388). Every argument holding a space or a cmd special character is quoted, so a
-// data folder like C:\Users\A&B\... stays one path; keepShell's own "&" separators stay bare.
-// % and " cannot be quoted safely for cmd, so an argument holding one refuses to start.
+// The command line for cmd.exe and the environment it needs: { line, env }. keepShell's own
+// "&" separators stay bare; a plain word stays itself; anything else goes by FS_A<n>.
 export function commandLine(args) {
-  return args.map(a => {
+  const env = {};
+  const line = args.map((a, i) => {
     const s = String(a);
-    if (s === '&') return s;
-    if (/[%"]/.test(s)) throw new Error(`cannot start: "${s}" holds ${s.match(/[%"]/)[0]}, which cannot be passed safely to the Windows command line. Rename that folder.`);
-    if (!/[\s&|<>^()!]/.test(s) && s !== '') return s;
-    return `"${s.replace(/(\\+)$/, '$1$1')}"`; // a trailing backslash would escape the closing quote
+    if (s === '&' || (s !== '' && !/[\s&|<>^()!%"]/.test(s))) return s;
+    if (/"/.test(s)) throw new Error(`cannot start: "${s}" holds ", which Windows does not allow in a name.`);
+    env[`FS_A${i}`] = s.replace(/(\\+)$/, '$1$1'); // a trailing backslash would escape the closing quote
+    return `"!FS_A${i}!"`;
   }).join(' ');
+  return { line: `/V:ON ${line}`, env };
 }
-// What node-pty is given: a Claude session's command line as one string, anything else as is.
-export const spawnArgs = args => ((args[0] === '/k' || args[0] === '/c') && args[1] === CLAUDE ? commandLine(args) : args);
+// What node-pty is given: a Claude session's command line (and its variables) as one string,
+// anything else as is.
+export const spawnArgs = args => ((args[0] === '/k' || args[0] === '/c') && args[1] === CLAUDE ? commandLine(args) : { line: args, env: {} });
+
+// The same session on a Mac (#2562): the owner's shell runs claude with its arguments passed as
+// they are ("$@", so no name is ever read as shell syntax), then, as keepShell does on Windows,
+// sets the title marker and stays as an ordinary login shell. A cmd-style line the smoke run
+// uses ('/k <line>' stays open, '/c <line>' ends) runs as a sh line. Returns { file, line, env }.
+export function posixSpawn(args, shell = '/bin/zsh') {
+  const sh = shell || '/bin/zsh';
+  if ((args[0] === '/c' || args[0] === '/k') && args[1] === CLAUDE) {
+    const script = `"$@"; printf '\\033]0;${CLAUDE_ENDED}\\007'; echo '[FocusShell] Claude has exited. This pane is a normal shell now.'; exec "$0" -l`;
+    return { file: sh, line: ['-c', script, sh, ...args.slice(1)], env: {} };
+  }
+  if (args[0] === '/k') return { file: sh, line: ['-c', `${args.slice(1).join(' ')}; exec "$0"`, sh], env: {} };
+  if (args[0] === '/c') return { file: sh, line: ['-c', args.slice(1).join(' '), sh], env: {} };
+  return { file: sh, line: args, env: {} };
+}
 
 // The last title cmd set in this output: exactly the marker once Claude has exited (and at
 // each prompt after), "marker - <command>" while a typed command runs. A claude typed there
@@ -105,34 +127,45 @@ export function renderGroupPrompt(template, group, groupsFile) {
   return fill(template, { GROUP: group, MANAGER: `cto-${group}`, GROUPSFILE: groupsFile });
 }
 
-// A project's second lead runs as session id "<Project>:2" (a colon is never in a folder
-// name, so it cannot clash with a project) and is named lead-<Project>-2 for messaging.
-export const secondId = project => `${project}:2`;
-export const secondOf = id => { const m = /^(.+):2$/.exec(String(id)); return m ? m[1] : null; };
+// A project runs up to MAX_LEADS leads at once (#1485). Its first runs as session id
+// "<Project>"; the others as "<Project>:<n>", n from 2 to 5 (a colon is never in a folder
+// name, so it cannot clash with a project), named lead-<Project>-<n> for messaging.
+export const MAX_LEADS = 5;
+export const EXTRA_LEADS = [2, 3, 4, 5];
+export const extraId = (project, n) => `${project}:${n}`;
+export const extraOf = id => { const m = String(id).match(/^(.+):([2-5])$/); return m ? { project: m[1], n: Number(m[2]) } : null; };
+// The project a lead's session belongs to, and its number (1 for the first lead).
+export const projectOf = id => (extraOf(id) || { project: String(id) }).project;
+export const leadNumber = id => (extraOf(id) || { n: 1 }).n;
+// The first lead number from 2 to 5 that is not taken, or null once all five run.
+export const nextLead = taken => EXTRA_LEADS.find(n => !taken(n)) || null;
 
-// Rules added to the second lead's prompt, after the usual lead rules.
-export function secondLeadNote(project, worktree) {
+const ORDINAL = { 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth' };
+// Rules added to an extra lead's prompt, after the usual lead rules.
+export function extraLeadNote(project, n, worktree) {
+  const me = `lead-${project}-${n}`, branch = `lead-${n}`;
   const head = [
-    '', '## You are the second lead', '',
-    `Your session name is \`lead-${project}-2\`, not \`lead-${project}\`. \`lead-${project}\` is`,
-    'also working on this project right now, on a different task. Both of you share the',
-    'one task file. Report to whoever sent your TASK, as usual.', '',
+    '', `## You are the ${ORDINAL[n]} lead`, '',
+    `Your session name is \`${me}\`, not \`lead-${project}\`. \`lead-${project}\` and maybe other`,
+    `leads of this project (\`lead-${project}-2\` to \`lead-${project}-${MAX_LEADS}\`) are working on it right now,`,
+    'each on a different task. All of you share the one task file. Report to whoever sent',
+    'your TASK, as usual.', '',
   ];
   const body = worktree ? [
-    `You work in your own git worktree of ${project}, on branch \`lead-2\`, so the first lead`,
-    'never sees your edits until you merge. Before starting a task, run `git merge main`.',
-    'When the task is done and tests pass, commit on `lead-2`, run `git merge main` again,',
+    `You work in your own git worktree of ${project}, on branch \`${branch}\`, so the other leads`,
+    'never see your edits until you merge. Before starting a task, run `git merge main`.',
+    `When the task is done and tests pass, commit on \`${branch}\`, run \`git merge main\` again,`,
     `then fast-forward main in ${worktree.main} with`,
-    `\`git -C "${worktree.main}" merge --ff-only lead-2\` and push from there with`,
+    `\`git -C "${worktree.main}" merge --ff-only ${branch}\` and push from there with`,
     `\`git -C "${worktree.main}" push\` when it has a remote. If the fast-forward is refused,`,
-    'report BLOCKED with the reason; never force it. Do not push `lead-2` itself.',
+    `report BLOCKED with the reason; never force it. Do not push \`${branch}\` itself.`,
     'Do not remove this worktree or its branch: the app does that when your session closes.',
   ] : [
-    `You share the project folder with \`lead-${project}\`. Touch only the files your task`,
-    'needs, and leave alone any file the other lead is changing. Commit only your own',
+    `You share the project folder with the other leads of ${project}. Touch only the files your task`,
+    'needs, and leave alone any file another lead is changing. Commit only your own',
     'files. Never run commands that change the whole working tree: no `git stash`,',
     '`git reset --hard`, `git checkout .`, `git clean`, branch switches or rebases.',
-    'If your task turns out to need a file the other lead is changing, report NEEDS YOU.',
+    'If your task turns out to need a file another lead is changing, report NEEDS YOU.',
   ];
   return [...head, ...body, ''].join('\n');
 }
@@ -154,7 +187,16 @@ export function ownSetupSettings(data) {
   const files = ['CLAUDE.md', 'CLAUDE.local.md'];
   return { claudeMdExcludes: [...new Set([...files.map(f => `${fwd}/${f}`), ...files.map(f => `${base}\\${f}`)])] };
 }
-export const withSettings = (args, file) => (file ? [...args, '--settings', file] : args);
+export function withSettings(args, file) {
+  if (!file) return args;
+  const i = args.indexOf('--settings');
+  return i < 0 ? [...args, '--settings', file] : args.map((a, j) => (j === i + 1 ? file : a));
+}
+export const settingsFileOf = args => { const i = args.indexOf('--settings'); return i < 0 ? null : args[i + 1]; };
+// Classic view (#1272): Claude Code's full-screen renderer keeps the conversation inside
+// itself, so a pane's scrollback, and its find bar, only ever held the visible rows. This
+// session setting starts the classic renderer, on top of any session setting it already has.
+export const classicSettings = (base = {}) => ({ ...base, tui: 'default' });
 
 // Remote Control off in Settings (#346): the same session without it. Messaging between
 // sessions on this PC works either way, as the Demo shows; Remote Control adds claude.ai's access.
@@ -180,8 +222,8 @@ export const DEMO_NOTE = `# Session names in the FocusShell Demo
 
 This is the FocusShell Demo. Every session name here starts with \`demo-\`: the CTO is
 \`demo-cto\`, a group's CTO is \`demo-cto-<Group>\`, the project manager is \`demo-pm\`, a
-project's lead is \`demo-lead-<Project>\` and its second lead \`demo-lead-<Project>-2\`. You are
+project's lead is \`demo-lead-<Project>\` and its extra leads \`demo-lead-<Project>-2\` to \`-5\`. You are
 the one your session name says. Wherever your rules name \`cto\`, \`cto-<Group>\`, \`pm\`,
-\`lead-<Project>\` or \`lead-<Project>-2\` as a session to message, use its demo- name instead.
+\`lead-<Project>\` or \`lead-<Project>-<n>\` as a session to message, use its demo- name instead.
 Never message a session whose name does not start with \`demo-\`.
 `;

@@ -5,6 +5,17 @@
 
 export const MIN = 32; // a smaller drag is a click, not an area
 
+// The mic icon on the bar while recording (#1792): how loud the mic is now, 0 to 1, from one
+// window of samples (-1 to 1), and whether the icon is lit. It lights above ON and goes dim
+// again only below OFF, so it does not flicker between words.
+export const MIC_ON = 0.02, MIC_OFF = 0.01;
+export function micLevel(samples) {
+  let sum = 0;
+  for (const s of samples) sum += s * s;
+  return samples.length ? Math.sqrt(sum / samples.length) : 0;
+}
+export const micLit = (level, lit = false) => (lit ? level >= MIC_OFF : level >= MIC_ON);
+
 // The rectangle between two points of a drag, whichever way it went.
 export function rectOf(a, b) {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);

@@ -39,6 +39,14 @@ function edit(c, patch) {
   return out;
 }
 
+// A regenerate's cards replace the recording's (#2185): matching by title duplicated every card
+// the new read worded differently. The old cards already on a board are kept in earlier as
+// { title, placed }, so the review can say where they went.
+export function replaceCards(s, fresh) {
+  const gone = (s.cards || []).filter(c => c.status === 'accepted' && c.placed).map(c => ({ title: c.title, placed: c.placed }));
+  return { cards: fresh, earlier: [...(s.earlier || []), ...gone] };
+}
+
 // After a send for the CTO nothing waits for a CTO line any more.
 const told = s => (s.sending && s.sending.cto ? { ctoPending: [] } : {});
 
@@ -53,9 +61,15 @@ export function next(s, ev) {
     case 'processing:stepDone': {
       if (ev.step !== s.step) return s;
       const done = [...s.done, s.step], i = STEPS.indexOf(s.step) + 1;
-      const cards = Array.isArray(ev.cards) ? { cards: ev.cards } : {};
-      return i < STEPS.length ? to({ step: STEPS[i], done, ...cards }) : to({ state: 'review', step: null, done, ...cards });
+      // Regenerating (#1482): the new cards replace the old ones (#2185).
+      const cards = !Array.isArray(ev.cards) ? {} : s.regen && ev.step === 'items' ? replaceCards(s, ev.cards) : { cards: ev.cards };
+      const regen = ev.step === 'items' ? { regen: false } : {};
+      return i < STEPS.length ? to({ step: STEPS[i], done, ...cards, ...regen }) : to({ state: 'review', step: null, done, ...cards, ...regen });
     }
+    // Regenerate tasks (#1482): a finished recording's transcript goes through the card-making
+    // step again; the sound and the transcript are not made again.
+    case 'done:regenerate':
+      return to({ state: 'processing', step: 'items', done: STEPS.slice(0, STEPS.indexOf('items')), error: null, regen: true, brainstorm: null, sending: null });
     case 'processing:stepFailed':
       return ev.step === s.step ? to({ state: 'failed', error: String(ev.error || 'failed') }) : s;
     case 'failed:retry':
@@ -89,8 +103,15 @@ export function next(s, ev) {
       return onCard(s, ev.id, c => (c.status === 'open' ? { ...c, status: 'dropped' } : c));
     case 'review:restore':
       return onCard(s, ev.id, c => (c.status === 'dropped' ? { ...c, status: 'open' } : c));
+    // "This recording is about" (#2185): the project for every open card Claude could not place.
+    case 'review:about': {
+      const p = String(ev.project || '');
+      if (!p || p === 'Me') return s;
+      return to({ about: p, cards: s.cards.map(c => (c.status === 'open' && !c.project ? { ...c, project: p } : c)) });
+    }
     case 'review:send': {
-      const ids = (ev.ids || []).filter(id => s.cards.some(c => c.id === id && c.status === 'open'));
+      // a card with no project yet waits for one (#2185)
+      const ids = (ev.ids || []).filter(id => s.cards.some(c => c.id === id && c.status === 'open' && c.project));
       return ids.length ? to({ state: 'sending', sending: { ids, cto: ev.cto === true }, error: null }) : s;
     }
     case 'sending:placed':

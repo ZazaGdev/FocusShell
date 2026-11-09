@@ -1,0 +1,24 @@
+/* Waiting on you cards, design A (#1521): headline or plain summary, option chips, small proof chips, details. */
+.wctitle{color:var(--muted);font-size:11.5px;margin:4px 0 2px}
+.wchead{font-size:13.5px;font-weight:650;line-height:1.35;color:var(--text);margin:0 0 6px}
+.wcsum{color:var(--text);line-height:1.45;margin:0 0 6px}
+.wcsum p{margin:0 0 5px} .wcsum b{font-weight:650}
+.wcsum ul{margin:0 0 5px;padding-left:18px;color:var(--text2)} .wcsum li{margin:2px 0} .wcsum li b{color:var(--text)}
+.wcwords{font-family:var(--mono);font-size:12px;background:var(--pane);border:1px dashed var(--me);border-radius:var(--r);padding:7px 9px;margin:4px 0 6px;color:var(--text);white-space:pre-wrap}
+.wcopts{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.wcopt{display:inline-flex;align-items:baseline;gap:6px;text-align:left;border:1px solid var(--line2);border-radius:14px;padding:4px 11px;background:var(--surface2);color:var(--text);font-size:12px;max-width:100%}
+.wcopt:hover{border-color:var(--accent)}
+.wcopt.sug{border-color:var(--accent);color:var(--accent)}
+.wcopt small{font-size:10.5px;opacity:.85}
+.wcwhy{color:var(--text2);margin:0 0 6px;font-size:12px}
+.wcchips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
+.wcchips .lchips{margin:0}
+.wcbadge{font-family:var(--mono);font-size:10.5px;border-radius:var(--r-sm);padding:2px 7px;background:var(--surface2);color:var(--text2)}
+.wcbadge.pass{color:var(--ok)} .wcbadge.fail{color:var(--bad)}
+.wcdetails{margin:4px 0}
+.wcdetails summary{cursor:pointer;color:var(--muted);font-size:11.5px}
+.wcdetails summary:hover{color:var(--text2)}
+.wcsub{color:var(--text2);margin:6px 0 0;line-height:1.45}
+.wcgroup{margin:8px 0 0}
+.wcgroup b{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.wcgroup ul{margin:0;padding-left:16px;color:var(--text2)} .wcgroup li{margin:2px 0}

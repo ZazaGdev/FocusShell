@@ -35,7 +35,8 @@ export function setSomeday(md, n, on) {
 
 // Groups for the Me panel: overdue and today; Reminders (#198), every open item with a time,
 // soonest first, so today's are in both; To do, the undated ones; Someday; and done.
-export function groupMe(tasks, now = new Date(), sort = 'newest') {
+// Today keeps the due order unless `todaySort` names another (#1386, TODAY_SORTS).
+export function groupMe(tasks, now = new Date(), sort = 'newest', todaySort = 'due') {
   const today = dayKey(now);
   const out = { today: [], reminders: [], todo: [], someday: [], done: [] };
   for (const t of tasks) {
@@ -47,7 +48,8 @@ export function groupMe(tasks, now = new Date(), sort = 'newest') {
     out.reminders.push(t);
   }
   const byDue = (a, b) => dueOf(a).date - dueOf(b).date || a.n - b.n;
-  out.today.sort(byDue); out.reminders.sort(byDue);
+  if (todaySort in TODO_SORTS) sortTodo(out.today, todaySort); else out.today.sort(byDue);
+  out.reminders.sort(byDue);
   sortTodo(out.todo, sort);
   out.someday.sort((a, b) => a.n - b.n);
   // Done (#219): the latest closed first; items closed before dates were kept, highest number first.
@@ -136,6 +138,8 @@ export function setSchedule(md, n, { day, time, every, unit }) {
 // "> Priority: 1-4" line, items without one last, newest first among equals). The date is the
 // one on the task line; the higher number is the newer on the same day.
 export const TODO_SORTS = { newest: 'Newest first', oldest: 'Oldest first', priority: 'Priority' };
+// Today on Home's Self panel (#1386) has the same orders plus its old one, by due date.
+export const TODAY_SORTS = { ...TODO_SORTS, due: 'Due date' };
 const prioOf = t => { for (const d of t.details || []) { const m = d.match(/^Priority:\s*([1-4])\s*$/i); if (m) return Number(m[1]); } return 9; };
 export function sortTodo(list, by = 'newest') {
   const newest = (a, b) => String(b.date || '').localeCompare(String(a.date || '')) || b.n - a.n;

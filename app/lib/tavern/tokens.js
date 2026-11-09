@@ -38,26 +38,33 @@ function totalsOf(file) {
 }
 
 // Who a log folder belongs to: FocusShell's manager folder is the CTO's, its pm folder the PM's,
-// a second lead's worktree is lead-<Project>-2, any other folder a lead named after its project.
-// The Demo's deck and toy projects (#314) read the same way.
-export function agentName(folder) {
+// a second lead's worktree is lead-<Project>-2, any other folder a lead named after its project:
+// the project whose folder it is (`known.projects`, by either drive letter it is reached by),
+// else the part after one of the project roots (`known.roots`), else after the drive. The Demo's
+// deck and toy projects (#314) read the same way.
+export function agentName(folder, known = {}) {
   if (/FocusShell(Demo-deck)?-manager$/.test(folder)) return 'CTO';
   if (/FocusShell(Demo-deck)?-pm$/.test(folder)) return 'PM';
   const wt = folder.match(/-state-worktrees-(.+)$/);
   if (wt) return `lead-${wt[1]}`;
-  const side = folder.match(/(?:SideProjects|FocusShellDemo-projects)-(.+)$/);
-  return `lead-${side ? side[1] : folder.replace(/^[A-Z]--/, '')}`;
+  const demo = folder.match(/FocusShellDemo-projects-(.+)$/);
+  if (demo) return `lead-${demo[1]}`;
+  const lower = folder.toLowerCase(), enc = p => encodeProjectDir(String(p).replace(/[\\/]+$/, '')).toLowerCase();
+  const own = (known.projects || []).find(p => p && p.path && enc(p.path) === lower);
+  if (own) return `lead-${own.name}`;
+  const root = (known.roots || []).map(r => `${enc(r)}-`).find(r => lower.startsWith(r) && lower.length > r.length);
+  return `lead-${root ? folder.slice(root.length) : folder.replace(/^[A-Z]--/, '')}`;
 }
 
 // The board: every conversation written to in the last six hours (the sessions running now),
 // counted from its start, and its helpers (subagent logs) as a row of their own. Temporary
 // folders (scratchpads, test runs) are left out. Sorted by fresh tokens, most first.
-export function leaderboard(projectsDir, now = Date.now(), windowMs = 6 * 3600e3) {
+export function leaderboard(projectsDir, now = Date.now(), windowMs = 6 * 3600e3, known = {}) {
   const rows = [];
   let folders = [];
   try { folders = fs.readdirSync(projectsDir, { withFileTypes: true }).filter(d => d.isDirectory() && !/-Temp-|^C--Users-[^-]+$/.test(d.name)).map(d => d.name); } catch { return rows; }
   for (const folder of folders) {
-    const dir = path.join(projectsDir, folder), who = agentName(folder);
+    const dir = path.join(projectsDir, folder), who = agentName(folder, known);
     let logs = [];
     try { logs = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl')); } catch { continue; }
     const live = logs.map(f => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs })).filter(x => now - x.mtime <= windowMs).sort((a, b) => b.mtime - a.mtime);
@@ -169,12 +176,13 @@ async function addSince(t, file, since) {
 }
 
 // [{ who, kind, fresh, cacheRead, replies }], most fresh tokens first.
-export async function periodBoard(projectsDir, since) {
+// known: { projects: [{ name, path }], roots: [folder] }, the running app's, to name the leads.
+export async function periodBoard(projectsDir, since, known = {}) {
   const byWho = new Map();   // one row per agent, though its project be reached by two drive letters
   let folders = [];
   try { folders = (await fs.promises.readdir(projectsDir, { withFileTypes: true })).filter(d => d.isDirectory() && !/-Temp-|^C--Users-[^-]+$/.test(d.name)).map(d => d.name); } catch { return []; }
   for (const folder of folders) {
-    const dir = path.join(projectsDir, folder), who = agentName(folder);
+    const dir = path.join(projectsDir, folder), who = agentName(folder, known);
     let items = [];
     try { items = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
     if (!byWho.has(who)) byWho.set(who, { own: { fresh: 0, cacheRead: 0, replies: 0 }, help: { fresh: 0, cacheRead: 0, replies: 0 }, helpers: 0 });

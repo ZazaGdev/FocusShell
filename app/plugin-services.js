@@ -13,7 +13,9 @@ import { runTurn } from './helper.js';
 // d: { desktopCapturer, screen } from Electron; data (the folder boards live in: the smoke data
 // folder in smoke and try runs), lock (the board lock), projectList(), cleanEnv(env), work (a
 // folder for Claude turns).
-export function pluginServices({ desktopCapturer, screen, data, lock, projectList, cleanEnv, work, brainstorm }) {
+export const SCREEN_PERMISSION = 'macOS has not let FocusShell record the screen. Turn on FocusShell in System Settings > Privacy & Security > Screen & System Audio Recording, then restart FocusShell.';
+// systemPreferences and mac: on a Mac, whether Screen Recording is allowed.
+export function pluginServices({ desktopCapturer, screen, systemPreferences = null, mac = process.platform === 'darwin', data, lock, projectList, cleanEnv, work, brainstorm }) {
   const ctx = () => ({ data, lock });
   return {
     // Sessions (#369 stage 4): only the recorder's brainstorm-cto and brainstorm-pm, started
@@ -32,10 +34,13 @@ export function pluginServices({ desktopCapturer, screen, data, lock, projectLis
         const want = displays.find(d => String(d.id) === String(which))
           || (which === 'primary' || !which ? primary : displays[Number(which) - 1] || primary);
         const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
-        if (!sources.length) throw new Error('Windows offered no screen to record');
+        // A Mac asks the owner the first time; until it is allowed, nothing can be recorded (#2562).
+        if (mac && systemPreferences && systemPreferences.getMediaAccessStatus('screen') !== 'granted') throw new Error(SCREEN_PERMISSION);
+        const os = mac ? 'macOS' : 'Windows';
+        if (!sources.length) throw new Error(`${os} offered no screen to record`);
         // With one display any source is it; with more, a guess would crop the wrong screen.
         const src = sources.find(s => String(s.display_id) === String(want.id)) || (displays.length === 1 ? sources[0] : null);
-        if (!src) throw new Error('Windows did not say which screen is which, so the marked area could not be found');
+        if (!src) throw new Error(`${os} did not say which screen is which, so the marked area could not be found`);
         const { width, height } = want.size, f = want.scaleFactor || 1;
         return { id: src.id, name: src.name, width: Math.round(width * f), height: Math.round(height * f) };
       },
@@ -44,6 +49,14 @@ export function pluginServices({ desktopCapturer, screen, data, lock, projectLis
     // same rules (one-line text, no lost items) under the same lock as the deck command.
     boards: () => ({
       projects: () => projectList().filter(p => p.kind !== 'personal').map(p => p.name),
+      // Each project's own words about itself (#2185): its CLAUDE.md, or README.md when there is
+      // none, cut to the start, for a turn that has to tell the projects apart.
+      about: () => Object.fromEntries(projectList().filter(p => p.kind !== 'personal').map(p => {
+        for (const name of ['CLAUDE.md', 'README.md']) {
+          try { const t = fs.readFileSync(path.join(p.path, name), 'utf8'); if (t.trim()) return [p.name, t.slice(0, 4000)]; } catch { /* next */ }
+        }
+        return [p.name, ''];
+      })),
       open: board => parseTasks(deck(['show', board], ctx())).filter(t => t.mark !== 'x').map(t => ({ n: t.n, title: t.text })),
       add(board, { title, details = [], due = '' }) {
         const args = ['add', board, title];
@@ -66,14 +79,15 @@ export function pluginServices({ desktopCapturer, screen, data, lock, projectLis
       },
     }),
     // One headless Claude turn, with nothing of the owner's setup loaded (the AI helper's way).
-    // o: { system, text, model, effort, timeoutMs }. Resolves the reply text; throws Claude's error.
+    // o: { system, text, model, effort, timeoutMs, read (a folder the turn may read files in, with
+    // the Read tool only) }. Resolves the reply text; throws Claude's error.
     claude: () => ({
-      async turn({ system, text, model = 'sonnet', effort = 'medium', timeoutMs = 5 * 60000 }) {
+      async turn({ system, text, model = 'sonnet', effort = 'medium', timeoutMs = 5 * 60000, read = null }) {
         fs.mkdirSync(work, { recursive: true });
         const promptFile = path.join(path.dirname(work), `prompt-${crypto.randomUUID()}.txt`);
         fs.writeFileSync(promptFile, system);
         try {
-          const r = await runTurn(helperCommand({ promptFile, model, effort }), String(text), {
+          const r = await runTurn(helperCommand({ promptFile, model, effort, read }), String(text), {
             cwd: work, env: cleanEnv(process.env), timeout: timeoutMs, slow: `Claude took over ${Math.round(timeoutMs / 60000)} minutes and was stopped` });
           if (r.error) throw new Error(r.error);
           let o;

@@ -14,19 +14,20 @@
 <link rel="stylesheet" href="codewait.css">
 <link rel="stylesheet" href="requirements.css">
 <link rel="stylesheet" href="plugins.css">
+<link rel="stylesheet" href="cards.css">
 </head>
 <body>
 <div id="titlebar">
   <div id="tabs"></div>
   <div class="wrap">
-    <button class="iconbtn" id="btnNew" title="Open a project session"></button>
+    <button class="iconbtn" id="btnNew" data-tip="Open a project session" aria-label="Open a project session"></button>
     <div class="pop left" id="newmenu"></div>
   </div>
   <div class="spacer"></div>
   <div class="ctrls">
-    <button class="iconbtn" id="btnSettings" title="Settings"></button>
+    <button class="iconbtn" id="btnSettings" data-tip="Settings" aria-label="Settings"></button>
     <div class="wrap">
-      <button class="iconbtn" id="btnLayout" title="Snap layouts"></button>
+      <button class="iconbtn" id="btnLayout" data-tip="Snap layouts" aria-label="Snap layouts"></button>
       <div class="pop" id="layouts">
         <h4>Snap layout. Ctrl+click tabs to choose which sessions fill it.</h4>
         <div class="lgrid" id="lgrid"></div>

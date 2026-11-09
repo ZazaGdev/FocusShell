@@ -3,13 +3,18 @@
 // the answer into that lead's pane, so the answer is the owner's own; the CTO never answers.
 import { answerKeys, livePrompt, samePrompt } from '../lib/prompts.js';
 import * as T from './terminal.js';
+import { icon } from './dom.js';
+
+// The X on every lead card (#1278), as on a board card in Waiting (#1168).
+const dropBtn = (h, label, onclick) => h('button', { class: 'wbdrop', title: label, 'aria-label': label, onclick }, icon('x'));
 
 const drafts = new Map(); // session id -> words typed in its card, kept across redraws
 let typingIn = null;      // the session id whose card box has the cursor
 
 // A lead needs the owner's own words in its pane (#228): the card shows the exact words and
 // the lead they go to. Only a click on its first button types them, by the request's id, so
-// what is typed is what the card shows; Decline types nothing. tellCto(line) tells the CTO.
+// what is typed is what the card shows; Decline types nothing, and so does its X (#1278), which
+// counts as Decline. tellCto(line) tells the CTO.
 export function wordsCard(h, r, deck, openPane, tellCto) {
   const el = h('article', { class: 'pcard words', 'data-words': r.id });
   const act = async approve => {
@@ -20,7 +25,8 @@ export function wordsCard(h, r, deck, openPane, tellCto) {
   };
   el.append(
     h('div', { class: 'pmeta' }, h('span', { class: 'kind decide' }, 'Your words'), h('span', { class: 'plead' }, r.lead),
-      h('button', { class: 'btn ghost', title: `Show ${r.lead}'s pane`, onclick: () => openPane(r.project) }, 'Open pane')),
+      h('button', { class: 'btn ghost', title: `Show ${r.lead}'s pane`, onclick: () => openPane(r.project) }, 'Open pane'),
+      dropBtn(h, `Decline and remove ${r.lead}'s request`, () => act(false))),
     r.why ? h('div', { class: 'pask' }, r.why) : null,
     h('div', { class: 'pnote' }, `Typed into ${r.lead}'s pane, exactly:`),
     h('pre', { class: 'pdetail pwordsbox' }, r.words),
@@ -30,8 +36,9 @@ export function wordsCard(h, r, deck, openPane, tellCto) {
   return el;
 }
 
-// w: { id, lead, project, what, prompt }; deck writes to the pane; openPane(project) shows it.
-export function promptCard(h, w, deck, openPane) {
+// w: { id, lead, project, what, prompt }; deck writes to the pane; openPane(project) shows it;
+// hide(w) takes the card off Waiting until the lead stops on another prompt (#1278).
+export function promptCard(h, w, deck, openPane, hide) {
   const p = w.prompt, el = h('article', { class: 'pcard', 'data-session': w.id });
   const go = async choice => {
     const keys = p ? answerKeys(p, choice) : [];
@@ -48,7 +55,8 @@ export function promptCard(h, w, deck, openPane) {
   };
   const head = h('div', { class: 'pmeta' }, h('span', { class: 'kind decide' }, p && p.kind === 'question' ? 'Question' : 'Approve'),
     h('span', { class: 'plead' }, w.lead),
-    h('button', { class: 'btn ghost', title: `Show ${w.lead}'s pane`, onclick: () => openPane(w.project) }, 'Open pane'));
+    h('button', { class: 'btn ghost', title: `Show ${w.lead}'s pane`, onclick: () => openPane(w.project) }, 'Open pane'),
+    hide ? dropBtn(h, `Remove from Waiting (${w.lead} stays stopped until it is answered in its pane)`, () => hide(w)) : null);
   if (!p) {
     el.append(head, h('div', { class: 'pask' }, w.what), h('div', { class: 'pnote' }, 'Answer it in its pane.'));
     return el;

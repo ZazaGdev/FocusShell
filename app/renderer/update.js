@@ -13,7 +13,7 @@ export async function setupUpdates(c) {
     state = s;
     const label = updateLabel(s);
     if (label && !btn) {
-      btn = c.h('button', { class: 'iconbtn updbtn', title: 'A new version is downloaded. Restart FocusShell to install it', onclick: install }, c.icon('arrowup'), label);
+      btn = c.h('button', { class: 'iconbtn updbtn', title: s.manual ? 'A new version is out. Opens its download page' : 'A new version is downloaded. Restart FocusShell to install it', onclick: install }, c.icon('arrowup'), label);
       c.bar.before(btn);
     } else if (btn) { if (label) btn.lastChild.textContent = label; else { btn.remove(); btn = null; } }
     changed();
@@ -25,6 +25,7 @@ export async function setupUpdates(c) {
 export async function checkUpdates() { state = await window.deck.updateCheck(); changed(); }
 
 async function install() {
+  if (state.manual) { await window.deck.updateInstall(); return; }
   if (!confirm(`Restart FocusShell to install v${state.latest}? Open sessions end, as when you close the app; your boards and settings stay.`)) return;
   await window.deck.updateInstall();
 }

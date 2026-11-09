@@ -13,6 +13,35 @@ export function plainText(s) {
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
 }
 
+// A lead that ended its turn on a question to the owner (#1756): the last report line on its
+// screen is NEEDS YOU, with no ANSWER, DONE, BLOCKED or WORKING line printed after it. The
+// question in a few words, or null. The caller counts it only while the pane is quiet.
+const REPORT = /\b(NEEDS YOU|DONE|BLOCKED|WORKING|ANSWER) (?:#\d+|new)\b/g;
+export function askedOwner(rows) {
+  let last = null;
+  for (const l of rows.map(String)) for (const m of l.matchAll(REPORT)) last = { kind: m[1], line: l.slice(m.index) };
+  if (!last || last.kind !== 'NEEDS YOU') return null;
+  return last.line.split('|')[1]?.trim() || 'a question';
+}
+
+// Background shells a lead still runs after its turn ended (#2706), read from Claude Code's
+// footer under its input box ("⏵⏵ auto mode on · 2 shells · ← 1 agent", kept down to a 45
+// column pane): "2 shells", or null. Text above the input box, such as "done 3:07 AM · 1 shell
+// still running" left in the conversation, does not count; "← 1 agent" is not background work.
+export function backgroundWork(rows) {
+  const lines = rows.map(l => String(l).replace(/\s+$/, ''));
+  let edge = -1;
+  lines.forEach((l, i) => { if (RULE(l)) edge = i; });
+  if (edge < 0) return null;
+  const m = lines.slice(edge + 1).join(' · ').match(/(?:^|[\s·])(\d+) (shells?)\b/);
+  return m && +m[1] > 0 ? `${m[1]} ${m[2]}` : null;
+}
+// What the dot's tooltip names (#2706): shells from the footer, subagents from Claude's files.
+export function backgroundText(shells, subagents) {
+  const n = Number(subagents) || 0;
+  return [shells || '', n ? `${n} subagent${n > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ') || null;
+}
+
 // What the lead waits on, in a few words, or null.
 export function waitingFor(output) {
   const text = plainText(output).replace(/\s+/g, ' ');
@@ -46,7 +75,7 @@ export function alertStep(prev, what, now) {
 // ("Enter to select"). Returns { kind, ask, detail, options: [{ n, label }], at, other } or
 // null; `at` is the option the cursor is on and `other` the option that takes typed words.
 const OPT = /^\s*([❯>›]\s*)?(\d+)\.\s+(.*\S)\s*$/;
-const RULE = l => /^[\s─━╭╮╰╯-]*$/.test(l) && /[─━-]{6}/.test(l); // a box edge or a divider
+export const RULE = l => /^[\s─━╭╮╰╯-]*$/.test(l) && /[─━-]{6}/.test(l); // a box edge or a divider
 export function readPrompt(rows) {
   const lines = rows.map(l => String(l).replace(/^\s*│ ?/, '').replace(/\s*│\s*$/, '').replace(/\s+$/, ''));
   let ask = -1, foot = -1;
@@ -56,14 +85,15 @@ export function readPrompt(rows) {
   // Numbered options: below the question for a permission, above the footer for a picker.
   let first = -1;
   if (kind === 'permission') first = lines.findIndex((l, i) => i > ask && OPT.test(l));
-  else for (let i = foot - 1; i >= 0; i--) { if (OPT.test(lines[i])) first = i; else if (first >= 0 && lines[i].trim() && !/^\s{3,}/.test(lines[i])) break; }
+  // A picker's last option ("Chat about this") can sit under a divider (#1355): skip it.
+  else for (let i = foot - 1; i >= 0; i--) { if (OPT.test(lines[i])) first = i; else if (RULE(lines[i])) continue; else if (first >= 0 && lines[i].trim() && !/^\s{3,}/.test(lines[i])) break; }
   if (first < 0) return null;
   const options = [];
   let at = 1;
   for (let i = first; i < lines.length && i !== foot; i++) {
     const m = lines[i].match(OPT);
     if (m && +m[2] === options.length + 1) { options.push({ n: +m[2], label: m[3] }); if (m[1]) at = +m[2]; continue; }
-    if (RULE(lines[i])) break;
+    if (RULE(lines[i])) { if (kind === 'permission') break; continue; }
     if (!lines[i].trim()) { if (kind === 'permission') break; continue; }
     // A wrapped permission option carries on; a picker's indented line describes its option.
     if (kind === 'permission' && options.length) options[options.length - 1].label += ' ' + lines[i].trim();
@@ -124,7 +154,7 @@ export function answerKeys(p, { n, text }) {
 // pane's rows: the text after the last "> " line that sits right under a divider, up to the
 // next divider. '' for an empty box, null when the screen shows no input box. A sent prompt
 // echoed in the conversation has no divider above it, so it does not count.
-const BOX_LINE = /^\s*[│|]?\s*[>❯](\s|$)(?!\s*\d+\.)/;
+export const BOX_LINE = /^\s*[│|]?\s*[>❯](\s|$)(?!\s*\d+\.)/;
 export function inputDraft(rows) {
   const lines = rows.map(l => String(l).replace(/\s+$/, ''));
   let at = -1;

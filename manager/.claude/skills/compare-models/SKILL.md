@@ -108,10 +108,10 @@ Do nothing else until the user says "go" (or "yes", "send it").
 3. **Open the leads**, one after the other, each on its model:
 
    ```
-   powershell -NoProfile -ExecutionPolicy Bypass -File <data>\open-pane.ps1 -Project <task>-<model> -Model <model>
+   node '<data>\deck.mjs' open-pane <task>-<model> --model <model>
    ```
 
-   If either refuses, stop and pass on what it printed. Never open one without `-Model`.
+   If either refuses, stop and pass on what it printed. Never open one without `--model`.
 4. Tell the user in one line that the panes are opening, that each may first ask whether
    to trust its new folder (they accept it in the pane), and that the prompt goes out once
    both are ready. End your turn.
@@ -119,7 +119,7 @@ Do nothing else until the user says "go" (or "yes", "send it").
 ## 3. Send, back to back
 
 On your next turn (the user saying "ready" or anything else), call `ListAgents` once.
-Every `lead-<task>-<model>` must be listed; if one is not, run its `open-pane.ps1` line
+Every `lead-<task>-<model>` must be listed; if one is not, run its `open-pane` line
 once more and tell the user. When all are listed:
 
 1. Run `date`.

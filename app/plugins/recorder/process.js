@@ -6,9 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
-import { parseWhisper, transcriptMd, expandEnv, ffmpegAudioArgs, ffmpegRemuxArgs, whisperArgs } from './lib/transcript.js';
-import { namedProjects, extractPrompt, transcriptText, parseCards, shotName, ffmpegShotArgs } from './lib/extract.js';
+import { parseWhisper, transcriptMd, expandEnv, ffmpegAudioArgs, ffmpegRemuxArgs, whisperArgs, exeName } from './lib/transcript.js';
+import { namedProjects, extractPrompt, extractText, parseCards, shotName, ffmpegShotArgs, frameTimes, frameName } from './lib/extract.js';
 import { videoFile, size } from './store.js';
+import { MAC_WHISPER_APPS } from '../../lib/owntools.js';
 
 const LIMIT_MS = 60 * 60000; // one step may take an hour on a long recording, then it is stopped
 
@@ -30,14 +31,25 @@ function run(cmd, args) {
   });
 }
 
-// whisper-cli.exe in the Whisper folder or up to three folders below it.
+// whisper-cli.exe (whisper-cli on a Mac) in the Whisper folder or up to three folders below it.
 export function findWhisperCli(dir, depth = 0) {
-  const direct = path.join(dir, 'whisper-cli.exe');
+  const direct = path.join(dir, exeName('whisper-cli'));
   if (fs.existsSync(direct)) return direct;
   if (depth >= 3) return null;
   let subs = [];
   try { subs = fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory()); } catch { return null; }
   for (const d of subs) { const f = findWhisperCli(path.join(dir, d.name), depth + 1); if (f) return f; }
+  return null;
+}
+
+// On a Mac (#2562) a program that ships whisper-cli inside its app may keep only the models in
+// the Whisper folder (MAC_WHISPER_APPS), and Homebrew puts it on the PATH: after the Whisper
+// folder, those are tried.
+export function whisperCli(dir, { mac = process.platform === 'darwin', exists = fs.existsSync, envPath = process.env.PATH || '', apps = MAC_WHISPER_APPS } = {}) {
+  const own = findWhisperCli(dir);
+  if (own || !mac) return own;
+  for (const a of apps) if (exists(a)) return a;
+  for (const d of envPath.split(':')) if (d && exists(`${d.replace(/\/+$/, '')}/whisper-cli`)) return `${d.replace(/\/+$/, '')}/whisper-cli`;
   return null;
 }
 
@@ -80,8 +92,8 @@ export async function transcriptStep(dir, settings, fake, session) {
   else if (session.mic === false) fs.writeFileSync(f.json, JSON.stringify({ transcription: [] }));
   else {
     const wdir = expandEnv(settings.whisperDir, process.env);
-    const cli = findWhisperCli(wdir);
-    if (!cli) throw new Error(`whisper-cli.exe is not in ${wdir}. Set the Whisper folder in Settings`);
+    const cli = whisperCli(wdir);
+    if (!cli) throw new Error(`${exeName('whisper-cli')} is not in ${wdir}. Set the Whisper folder in Settings`);
     const model = path.isAbsolute(expandEnv(settings.model, process.env)) ? expandEnv(settings.model, process.env) : path.join(wdir, settings.model);
     if (!fs.existsSync(model)) throw new Error(`The Whisper model ${model} is missing`);
     const threads = Math.max(4, os.cpus().length - 2);
@@ -104,17 +116,39 @@ function duration(session, lines) {
   return Math.max(ran, ...lines.map(l => l.end || l.at || 0), 0);
 }
 
-// Step items: one Claude turn reads the timed transcript, every project's name and the open
-// items of the projects the talk names, and answers with the cards. The raw reply is kept in
-// items.txt to check a bad extraction against.
+// Pictures of the screen through the recording, in frames/, for the card step to see which
+// project is on screen (#2185). A frame ffmpeg cannot make is left out; no ffmpeg, no frames.
+async function screenFrames(dir, settings, session, lines, host) {
+  const video = videoFile(dir), out = path.join(dir, 'frames'), got = [];
+  if (!size(video)) return got;
+  fs.mkdirSync(out, { recursive: true });
+  const ffmpeg = expandEnv(settings.ffmpeg || 'ffmpeg', process.env);
+  for (const at of frameTimes(duration(session, lines))) {
+    const file = path.join(out, frameName(at));
+    try { if (size(file) || await grab(ffmpeg, video, at, file)) got.push({ at, path: file }); } catch (e) { host.log(`${session.id} frames: ${e.message}`); break; }
+  }
+  return got;
+}
+
+// Step items: one Claude turn reads the timed transcript, pictures of the screen through the
+// recording, every project's name and what it is, and the open items of the projects the talk
+// names, and answers with the cards. The raw reply is kept in items.txt to check a bad
+// extraction against.
 export async function itemsStep(dir, settings, fake, session, host) {
   const lines = readLines(dir);
   if (!lines.length) return { cards: [] };
   const projects = host.boards.projects();
   const open = {};
   for (const p of namedProjects(lines, projects)) try { open[p] = host.boards.open(p); } catch { /* no board yet */ }
-  const text = fake ? cannedReply(projects) : await host.claude.turn({
-    system: extractPrompt({ projects, open, now: new Date(session.startedAt) }), text: transcriptText(lines), model: settings.extractModel || 'sonnet' });
+  let text;
+  if (fake) text = cannedReply(projects);
+  else {
+    let about = {};
+    try { about = host.boards.about(); } catch (e) { host.log(`about: ${e.message}`); }
+    const frames = await screenFrames(dir, settings, session, lines, host);
+    text = await host.claude.turn({ system: extractPrompt({ projects, about, open, now: new Date(session.startedAt), frames: frames.length > 0 }),
+      text: extractText(lines, frames), model: settings.extractModel || 'sonnet', read: frames.length ? path.join(dir, 'frames') : null, timeoutMs: 10 * 60000 });
+  }
   fs.writeFileSync(path.join(dir, 'items.txt'), text);
   return { cards: parseCards(text, { projects, open, duration: duration(session, lines), lines }) };
 }
@@ -148,6 +182,20 @@ export async function screenshotsStep(dir, settings, fake, session, host) {
   }
   const cards = (session.cards || []).map(c => ({ ...c, shots: [...new Set((c.shotAt || []).map(t => path.join(shots, shotName(t))))].filter(f => made.get(f)) }));
   return { cards };
+}
+
+// The recorded videos list's picture of a recording (#1482): one small frame, made once and kept
+// as thumb.jpg in its folder. Null when there is no video or ffmpeg wrote nothing.
+export async function thumbnail(dir, settings) {
+  const out = path.join(dir, 'thumb.jpg'), video = videoFile(dir);
+  if (size(out)) return out;
+  if (!size(video)) return null;
+  const ffmpeg = expandEnv(settings.ffmpeg || 'ffmpeg', process.env);
+  for (const at of ['1', '0']) {
+    try { await run(ffmpeg, ['-v', 'error', '-y', '-ss', at, '-i', video, '-frames:v', '1', '-vf', 'scale=640:-2', out]); } catch { /* try the start */ }
+    if (size(out)) return out;
+  }
+  return null;
 }
 
 export const STEP_RUN = { audio: audioStep, transcript: transcriptStep, items: itemsStep, screenshots: screenshotsStep };

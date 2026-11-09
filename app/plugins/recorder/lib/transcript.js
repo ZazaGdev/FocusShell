@@ -32,14 +32,19 @@ export function folderName(d) {
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
 }
 
-// %VAR% in a settings path, from env; a variable env does not have stays as written.
+// %VAR% in a settings path, from env; a variable env does not have stays as written. A Mac's
+// "~/" is the home folder (#2562).
 export function expandEnv(p, env) {
   const keys = Object.keys(env || {});
-  return String(p || '').replace(/%([^%]+)%/g, (all, name) => {
+  const s = String(p || '').replace(/%([^%]+)%/g, (all, name) => {
     const k = keys.find(x => x.toLowerCase() === name.toLowerCase());
     return k ? env[k] : all;
   });
+  return /^~\//.test(s) && env && env.HOME && !/^[A-Za-z]:/.test(env.HOME) ?`${String(env.HOME).replace(/\/+$/, '')}/${s.slice(2)}` : s;
 }
+
+// The program names on this system: whisper-cli and ffmpeg carry .exe on Windows only.
+export const exeName = (name, win = process.platform === 'win32') => (win ? `${name}.exe` : name);
 
 // ffmpeg: the recording's sound as the 16 kHz mono wav whisper reads.
 export const ffmpegAudioArgs = (video, wav) => ['-v', 'error', '-y', '-i', video, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav];

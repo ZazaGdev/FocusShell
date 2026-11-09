@@ -52,7 +52,8 @@ export function applyProposal(cards, entries, o = {}) {
       const f = fields(e, o.projects);
       if (!f.title) continue;
       const n = Math.max(0, ...out.map(c => Number(String(c.id).replace(/\D/g, '')) || 0)) + 1;
-      out.push(settle({ id: `c${n}`, kind: 'task', project: 'Me', description: '', quote: line(e.quote), at: 0, shotAt: [], shots: [], due: '',
+      // no project named: the review asks for one rather than putting it on Me (#2185)
+      out.push(settle({ id: `c${n}`, kind: 'task', project: '', description: '', quote: line(e.quote), at: 0, shotAt: [], shots: [], due: '',
         mergeInto: null, mergeTitle: '', status: 'open', placed: null, ...f, mark: 'added', before: null }));
       continue;
     }

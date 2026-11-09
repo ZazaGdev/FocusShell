@@ -1,0 +1,169 @@
+# FocusShell for Mac (#2562): builds the unsigned Apple Silicon app on GitHub's free macOS
+# runner (free on a public repo), runs the unit tests and the smoke run, checks the bundle, then
+# installs the .dmg on the runner's Mac and opens it. Nothing is published: the .dmg, its
+# SHA-256, the screenshots and the logs are this run's artifacts.
+name: mac
+
+on:
+  push:
+    branches: [mac-dev]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp on the build (empty for app/package.json's)
+        required: false
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      # A push builds the version in app/package.json; a manual run may stamp another one.
+      VERSION: ${{ inputs.version }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # The recorder's processing with the real programs (chunk 8): a spoken test video through
+      # ffmpeg and whisper-cli into a transcript, and a frame grabbed from it.
+      - name: Recorder processing
+        run: |
+          brew install ffmpeg whisper-cpp
+          mkdir -p ../state/rec-check/rec ../state/rec-check/speech
+          curl -sSL -o ../state/rec-check/speech/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          say -o ../state/rec-check/s.aiff "Add a dark mode toggle to the settings page."
+          ffmpeg -v error -y -f lavfi -i color=c=gray:s=320x180:d=5 -i ../state/rec-check/s.aiff -shortest -c:v libvpx -c:a libopus ../state/rec-check/rec/video.webm
+          node plugins/recorder/check-process.mjs ../state/rec-check/rec ../state/rec-check/speech/ggml-tiny.en.bin "dark mode"
+
+      - name: Key helper
+        run: |
+          npm run keystate
+          lipo -archs native/bin/keystate
+
+      - name: node-pty's helper can run
+        run: |
+          test -x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper || { echo "spawn-helper is not executable, so no pane can start"; exit 1; }
+
+      # The Code pane needs VS Code installed (chunk 6).
+      - name: VS Code
+        run: |
+          brew install --cask visual-studio-code
+          test -x "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+      # The smoke run switches between several projects and opens ones not open yet, and lists
+      # the folders beside the checkout as projects; on the runner only FocusShell is there, so
+      # five small ones join it.
+      - name: Projects beside the checkout
+        run: |
+          for p in Habitly NoteNest RecipeScale FocusTimer Papers; do
+            d="$GITHUB_WORKSPACE/../$p"; mkdir -p "$d"
+            printf '# %s\n\nA small demo project for the smoke run.\n' "$p" > "$d/README.md"
+            git -C "$d" init -q && git -C "$d" add -A && git -C "$d" -c user.name=smoke -c user.email=smoke@example.com commit -q -m "first"
+          done
+          ls "$GITHUB_WORKSPACE/.."
+          # A short zsh prompt, as on a person's Mac, not the runner's long host name.
+          echo "PROMPT='%1~ %# '" >> ~/.zshrc
+
+      # The smoke run uses fake sessions (no Claude); its FAILED lines are read from the log and
+      # the screenshots, so they do not stop the build. Many of its checks still carry Windows
+      # paths and the owner's boards as test data (listed in the plan's Outcome), and one of those
+      # can end the run early: that shows as a warning. A run that wrote nothing, or ran out of
+      # time, means no pane could start: the job is marked failed at the end, after the uploads.
+      - name: Smoke run
+        id: smoke
+        continue-on-error: true
+        env:
+          FOCUSSHELL_SMOKE_MINUTES: '20'
+          # A Mac's login shell, as on a new Mac (the runner's own is bash).
+          SHELL: /bin/zsh
+        run: |
+          mkdir -p ../state
+          npx electron . --smoke 2>&1 | tail -40 | tee ../state/smoke-console.txt
+          echo "FAILED lines: $(grep -c '^FAILED' ../state/smoke/log.txt || true)"
+          grep '^FAILED' ../state/smoke/log.txt | head -60 || true
+          test -s ../state/smoke/log.txt || { echo "the smoke run wrote no log"; exit 1; }
+          ! grep -q 'did not finish within' ../state/smoke-console.txt || { echo "the smoke run timed out"; exit 1; }
+          if grep -q 'smoke run failed in the page' ../state/smoke-console.txt; then echo "::warning::the smoke run stopped early after $(grep -c . ../state/smoke/log.txt) checks: $(grep -o 'smoke run failed in the page: .\{0,160\}' ../state/smoke-console.txt | head -1)"; fi
+
+      - name: Build
+        run: |
+          V="${VERSION:-$(node -p "require('./package.json').version")}"
+          echo "Building FocusShell $V"
+          npm version "$V" --no-git-tag-version --allow-same-version
+          npm run dist:mac
+
+      - name: Check the bundle
+        run: |
+          APP="dist/mac-arm64/FocusShell.app"
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | head -5
+          PTY="$APP/Contents/Resources/app/node_modules/node-pty/prebuilds/darwin-arm64"
+          lipo -archs "$PTY/pty.node"
+          test -x "$PTY/spawn-helper" || { echo "the packed spawn-helper is not executable"; exit 1; }
+          echo "spawn-helper is executable"
+          lipo -archs "$APP/Contents/Resources/app/native/bin/keystate"
+          test -x "$APP/Contents/Resources/app/native/bin/keystate" || { echo "the packed key helper is not executable"; exit 1; }
+          ls -la dist/*.dmg dist/*.zip
+
+      # Installs the .dmg as a person would (quarantined, as a download is), lets Gatekeeper say
+      # what it thinks of the unsigned app, then opens it and takes screenshots.
+      - name: Install and open
+        run: |
+          DMG=$(ls dist/FocusShell-*-arm64.dmg)
+          hdiutil attach "$DMG" -nobrowse -mountpoint /Volumes/FocusShell
+          cp -R /Volumes/FocusShell/FocusShell.app /Applications/
+          hdiutil detach /Volumes/FocusShell
+          xattr -w com.apple.quarantine "0083;$(printf %x $(date +%s));Safari;" /Applications/FocusShell.app
+          spctl --assess --type execute -vv /Applications/FocusShell.app || echo "Gatekeeper refuses it, as expected for an unsigned app: users press Open Anyway"
+          xattr -dr com.apple.quarantine /Applications/FocusShell.app
+          mkdir -p ../state/open
+          open /Applications/FocusShell.app
+          for t in 10 25 45; do sleep $((t - ${last:-0})); last=$t; screencapture -x ../state/open/open-${t}s.png; done
+          pgrep -fl "FocusShell.app/Contents/MacOS/FocusShell" || { echo "FocusShell is not running 45 seconds after opening"; exit 1; }
+          echo "FocusShell is running"
+          osascript -e 'quit app "FocusShell"' || pkill -f FocusShell.app || true
+
+      - name: Hash
+        if: always()
+        run: |
+          cd dist && for f in *.dmg *.zip; do [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256" && cat "$f.sha256"; done; true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FocusShell-mac-arm64
+          path: |
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/*.sha256
+            app/dist/latest-mac.yml
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-and-logs
+          path: |
+            state/smoke/*.png
+            state/smoke/log.txt
+            state/smoke-console.txt
+            state/open/*.png
+          if-no-files-found: warn
+
+      - name: Smoke run verdict
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "The smoke run did not complete (see its step); the build above still uploaded."
+          exit 1

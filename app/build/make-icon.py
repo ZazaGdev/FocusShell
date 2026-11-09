@@ -43,6 +43,8 @@ def main() -> None:
     frames = [draw(n).resize((n, n), Image.LANCZOS) for n in sizes]
     frames[-1].save(HERE / "icon.ico", sizes=[(n, n) for n in sizes], append_images=frames[:-1])
     draw(256).resize((256, 256), Image.LANCZOS).save(HERE / "icon.png")
+    # The Mac app's icon (#2562): electron-builder makes its .icns from a 1024 px PNG.
+    draw(1024).save(HERE / "icon-mac.png")
     draw(256).resize((64, 64), Image.LANCZOS).save(HERE.parent / "renderer" / "logo.png")
     print("wrote", HERE / "icon.ico")
 

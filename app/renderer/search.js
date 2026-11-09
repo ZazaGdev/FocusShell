@@ -5,6 +5,7 @@
 // and cut to five until asked (#235); each row carries its project, status, tags, priority and
 // version, and the detail line that matched.
 import { h } from './dom.js';
+import { modKey } from '../lib/platform.js';
 import { parseTasks, itemTags } from '../lib/tasks.js';
 import { planOf } from '../lib/plan.js';
 import { searchIndex, searchItems, searchSections, matchedDetail } from '../lib/search.js';
@@ -13,7 +14,8 @@ const MARK = { '~': ['p', 'In progress'], '?': ['q', 'Needs you'], '!': ['b', 'B
 const DONE_CAP = 5;
 // A steady colour per project name, so the same project always wears the same chip.
 const hue = name => [...name].reduce((a, ch) => (a * 31 + ch.codePointAt(0)) % 360, 7);
-export const searchKey = e => e.ctrlKey && !e.altKey && e.code === 'KeyK';
+// Cmd+K on a Mac (#2562).
+export const searchKey = e => modKey(e) && !e.altKey && e.code === 'KeyK';
 
 let box = null, index = null, indexOf = null;
 

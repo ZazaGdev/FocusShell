@@ -112,11 +112,18 @@ export function boardSection(c) {
   const inUse = (only.length ? 1 : 0) + (!c.focus && c.prios?.length ? 1 : 0) + (tf.tags.length ? 1 : 0) + (kinds && c.kind && c.kind !== 'all' ? 1 : 0);
   const shelf = h('div', { class: 'bfilters' + (filtersOpen ? ' open' : '') }, h('div', {}, chips));
   const fbtn = h('button', { class: 'btn bfbtn' + (filtersOpen ? ' on' : ''), title: filtersOpen ? 'Hide the filters' : 'Show the filters', onclick: () => {
-    filtersOpen = !filtersOpen; shelf.classList.toggle('open', filtersOpen); fbtn.classList.toggle('on', filtersOpen); fbtn.title = filtersOpen ? 'Hide the filters' : 'Show the filters';
+    filtersOpen = !filtersOpen; shelf.classList.toggle('open', filtersOpen); fbtn.classList.toggle('on', filtersOpen); fbtn.dataset.tip = filtersOpen ? 'Hide the filters' : 'Show the filters';
   } }, c.icon('filter'), 'Filters', inUse ? h('span', { class: 'bfcount' }, String(inUse)) : null);
   const bar = [h('div', { class: 'bfbar' }, fbtn), shelf];
 
-  const itemEl = ({ p, t }, lane) => {
+  // One card that fails to draw shows as its title alone, never blanking the Board (#1340).
+  const itemEl = (it, lane) => {
+    try { return cardEl(it, lane); } catch (e) {
+      console.error(`board: ${it.p} #${it.t.n} did not draw`, e);
+      return h('div', { class: 'bitem', title: 'Open details', onclick: () => c.showTask(it.p, it.t) }, h('div', { class: 'btitle' }, it.t.text));
+    }
+  };
+  const cardEl = ({ p, t }, lane) => {
     const kind = ownerKind(t);
     let act = null;
     if (lane === 'ready') act = h('button', { class: 'btn send', title: `Hand it to ${p}'s CTO`, onclick: () => c.send(p, t.n) }, 'Send');

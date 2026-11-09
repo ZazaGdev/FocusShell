@@ -4,7 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { shellCommand, killTree } from './lib/shell.js';
 import { parseTasks } from './lib/tasks.js';
 import { nextShared } from './lib/counter.js';
 import { systemPrompt, parseReply, addItem, helperCommand } from './lib/helper.js';
@@ -13,16 +14,17 @@ import { modelFor } from './lib/settings.js';
 const SAFE = /^[^\\/:*?"<>|.][^\\/:*?"<>|]*$/;
 const TIMEOUT = 60000;
 
-// One headless Claude turn: cmd (from helperCommand) through cmd.exe, text on stdin. Resolves
-// { out, err }, or { error } when it could not start or ran past timeout (then it is killed).
-// Also the recorder's claude service (#369).
+// One headless Claude turn: cmd (from helperCommand) through the system's shell (cmd.exe, or sh
+// on a Mac), text on stdin. Resolves { out, err }, or { error } when it could not start or ran
+// past timeout (then it is killed). Also the recorder's claude service (#369).
 export function runTurn(cmd, text, { cwd, env, timeout, slow }) {
   return new Promise(res => {
     let out = '', err = '', done = false;
-    const c = spawn('cmd.exe', ['/d', '/s', '/c', cmd], { cwd, env, windowsHide: true, windowsVerbatimArguments: true });
+    const sh = shellCommand(cmd);
+    const c = spawn(sh.file, sh.args, { cwd, env, ...sh.opts });
     const finish = r => { if (!done) { done = true; clearTimeout(timer); res(r); } };
     const timer = setTimeout(() => {
-      try { execFileSync('taskkill', ['/PID', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch { /* gone */ }
+      killTree(c.pid);
       finish({ error: slow || 'Claude took too long and was stopped.' });
     }, timeout);
     c.stdout.on('data', b => { out += b; });

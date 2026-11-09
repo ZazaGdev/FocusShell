@@ -7,6 +7,7 @@ import path from 'node:path';
 import { parseTasks, addTaskLine, setMark, setResult, setWho, addDetail, setTaskText, addNoteLine, itemTags, toggleTag, SHARED_START } from './tasks.js';
 import { nextShared, boardOf } from './counter.js';
 import { relinkShots } from './shots.js';
+import { PANE_USAGE } from './deckpanes.js';
 
 // Verbs whose first argument is an item's board; with a shared-counter number it may be left out.
 const ON_ITEM = new Set(['show', 'mark', 'result', 'detail', 'title', 'answer', 'tag', 'set', 'due', 'someday', 'move']);
@@ -35,6 +36,12 @@ export const USAGE = `deck <verb> ...   (put text in single quotes; Windows path
   status  [lead-<Project> '<where it stopped>']   one short line per lead for the Status view; none prints them
   backup  [--push]                          commit the board files now; --push also pushes them
   relink  '<old folder>' '<new folder>' [--dry]   Screenshot lines under the old folder point at the new one
+  worktrees [--clean]                       every project's git worktrees, keep or remove and why, with sizes;
+                                            --clean removes the safe ones (clean, merged, idle a day, where leads
+                                            and agents make them) and saves the report in state\\worktree-sweep.txt
+  worktree-remove '<folder>'                removes one worktree you made, once its work is merged, under the
+                                            same checks (never plain git worktree remove: it empties link targets)
+${PANE_USAGE}
 Boards: a project name, Me, or Ideas.
 Numbers: every task board shares one counter from 1000, so a number from 1000 up names one item
 and its board may be left out (deck mark 1041 done). A number below 1000 is an old one: give its board.`;
@@ -212,7 +219,7 @@ export function run(argv, ctx) {
       change(to, md => {
         let out = addTaskLine(md, t.text, to.name === 'Me' ? 'user' : t.who + (t.forOwner ? ', for owner' : ''), t.date || today, numberFor(to, md));
         m = parseTasks(out).at(-1).n;
-        for (const d of [...new Set(t.details)].filter(x => !/^Done:/i.test(x))) out = addDetail(out, m, d);
+        for (const d of [...new Set(t.details)].filter(x => !/^(Done|Waiting):/i.test(x))) out = addDetail(out, m, d);
         return addDetail(out, m, `From: ${from.name} #${n}`);
       });
       change(from, md => setResult(setMark(md, n, 'x', when), n, `moved to ${to.name} #${m}`));

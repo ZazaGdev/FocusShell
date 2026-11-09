@@ -3,10 +3,12 @@
 // folder in the Demo). Smoke and try runs answer with a canned result, no Claude.
 import { execFile } from 'node:child_process';
 import { onPath, olderThan, MESSAGING_MIN } from './lib/requirements.js';
+import { isWin } from './lib/shell.js';
 
 const run = (args, env) => new Promise(resolve => {
-  // cmd finds claude.exe or claude.cmd, as a pane does.
-  execFile('cmd.exe', ['/d', '/s', '/c', 'claude', ...args], { env, windowsHide: true, timeout: 20000, encoding: 'utf8' },
+  // cmd finds claude.exe or claude.cmd, as a pane does; a Mac finds claude on the PATH.
+  const [file, argv] = isWin() ? ['cmd.exe', ['/d', '/s', '/c', 'claude', ...args]] : ['claude', args];
+  execFile(file, argv, { env, windowsHide: true, timeout: 20000, encoding: 'utf8' },
     (err, out) => resolve(err && !out ? null : String(out || '')));
 });
 

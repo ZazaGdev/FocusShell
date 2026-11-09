@@ -11,7 +11,8 @@ test('recorder settings: dropdowns list what is on this PC and mark what would n
   for (const f of ['whisper-cli.exe', 'ggml-medium.en-q5_0.bin', 'models/ggml-small.en.bin', 'readme.txt', 'ffmpeg.exe']) fs.writeFileSync(path.join(w, f), '');
   fs.writeFileSync(path.join(bin, 'ffmpeg.exe'), '');
   const findCli = d => (fs.existsSync(path.join(d, 'whisper-cli.exe')) ? path.join(d, 'whisper-cli.exe') : null);
-  const d = { env: { PATH: bin, PATHEXT: '.EXE' }, defaults: { whisperDir: path.join(tmp, 'nowhere') }, findCli };
+  // Windows' names (#2562: a Mac's have no .exe, lib/macpaths.test.js).
+  const d = { env: { PATH: bin, PATHEXT: '.EXE' }, defaults: { whisperDir: path.join(tmp, 'nowhere') }, findCli, win: true };
   const s = { whisperDir: w, model: 'ggml-medium.en-q5_0.bin', ffmpeg: 'ffmpeg' };
 
   const dirs = choicesFor('whisperDir', s, d);

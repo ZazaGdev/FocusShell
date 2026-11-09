@@ -36,7 +36,9 @@ export function renderSettings(root, c) {
       // In-app updates (#1088): the installed app looks for new versions by itself.
       c.update ? opt('Version', !c.update.on ? 'This copy does not update itself (a development or test run)'
         : c.update.ready ? `v${c.update.latest} is downloaded: Update ready in the title bar restarts into it`
-        : c.update.checking ? 'Looking for a new version…' : c.update.error ? `Could not check: ${c.update.error}` : 'New versions download by themselves; you choose when to restart',
+        : c.update.manual && c.update.latest ? `v${c.update.latest} is out: New version in the title bar opens its download page`
+        : c.update.checking ? 'Looking for a new version…' : c.update.error ? `Could not check: ${c.update.error}`
+        : c.update.manual ? 'FocusShell looks for new versions; on a Mac you download and install each one yourself' : 'New versions download by themselves; you choose when to restart',
       h('span', { class: 'rootrow' }, h('code', { class: 'fixedname' }, `v${c.update.version}`),
         c.update.on && !c.update.ready ? h('button', { class: 'btn', 'data-act': 'update', onclick: c.checkUpdates }, 'Check now') : null)) : null),
     h('section', { class: 'pcard' },
@@ -74,6 +76,7 @@ export function renderSettings(root, c) {
           h('div', { class: 'plrow pladd' }, c.connect)])),
     h('section', { class: 'pcard' },
       h('h2', {}, 'Connections'),
+      opt('Classic Claude view', "Sessions start in Claude Code's classic view instead of full-screen, so a pane's whole history is in the pane and Find searches all of it. Applies the next time a session starts", toggle(s.classicView, v => set({ classicView: v }))),
       opt('Remote Control', "Sessions start reachable from claude.ai and the Claude app, under their own names. Applies the next time a session starts", toggle(s.remoteControl, v => set({ remoteControl: v }))),
       opt('Push board backups', "The hourly backup of tasks, ideas, notes and briefs is always committed in the data folder; on, it is also pushed to that folder's git remote", toggle(s.backupPush, v => set({ backupPush: v })))),
     h('section', { class: 'pcard' },
@@ -99,7 +102,7 @@ export function renderSettings(root, c) {
       s.catchUp === 'model' ? opt('Recap model', 'Haiku unless you pick another', modelPick(s.models.catchup, m => set({ models: { ...s.models, catchup: m || 'haiku' } }))) : null),
     h('section', { class: 'pcard' },
       h('h2', {}, 'Status'),
-      opt('Refresh every', 'How often each CTO is asked to update the Status lines while a lead is busy or has changed; a busy CTO answers at its next pause',
+      opt('Refresh after you are away', 'How long the app waits with no typing or clicking before each CTO is asked to update the Status lines, and once more at twice that, while a lead is busy or has changed; a busy CTO answers at its next pause',
         seg(STATUS_EVERY, s.statusEvery, m => set({ statusEvery: m }), m => (m < 60 ? `${m} min` : `${m / 60} h`)))),
     h('section', { class: 'pcard' },
       h('h2', {}, 'Sessions'),

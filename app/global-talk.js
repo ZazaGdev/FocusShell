@@ -7,6 +7,10 @@ import { globalShortcut, BrowserWindow, screen } from 'electron';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { readyToSend } from './lib/talk.js';
+import { keystatePath, helloLine } from './lib/keystate.js';
+import { tellOnce } from './permission-note.js';
+
+const WIN = process.platform === 'win32';
 
 // Letting go outside the app sends what was said (#415): Enter once the pane has gone quiet, so
 // Claude Code's dictation has written the words into the prompt first. Inside the app the words
@@ -60,15 +64,23 @@ function showPill() {
 }
 const hidePill = () => { try { if (pill && !pill.isDestroyed()) pill.hide(); } catch { /* gone */ } };
 
-// d: { app, sessions, send, voiceMode }
+// d: { app, sessions, send, voiceMode, appDir }
 export function registerGlobalTalk(d) {
-  const { app, sessions, send, voiceMode } = d;
+  const { app, sessions, send, voiceMode, appDir } = d;
   let watcher = null, onUp = null, held = null, cap = null;
+  // On a Mac the key helper does the same (#2562); its first line says whether macOS lets it
+  // read the keyboard.
   function startWatcher() {
     if (watcher && watcher.exitCode === null) return watcher;
-    watcher = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(WATCH_PS, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    watcher = WIN
+      ? spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(WATCH_PS, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
+      : spawn(keystatePath(appDir), ['space'], { stdio: ['pipe', 'pipe', 'ignore'] });
     watcher.on('error', () => { watcher = null; });
-    readline.createInterface({ input: watcher.stdout }).on('line', () => { const f = onUp; onUp = null; if (f) f(); });
+    let first = !WIN;
+    readline.createInterface({ input: watcher.stdout }).on('line', line => {
+      if (first) { first = false; const h = helloLine(line); if (h) { if (!h.ok) tellOnce(h.why); return; } }
+      const f = onUp; onUp = null; if (f) f();
+    });
     return watcher;
   }
   const space = () => {

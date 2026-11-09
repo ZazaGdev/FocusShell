@@ -20,7 +20,8 @@ Paths below (`tasks/`, `briefs/`, `projects.json`) are relative to
    `  > ` detail lines under each task. Lines whose `<who>` ends in `, for owner` are the
    user's own checks, not lead work. A `> Sketch: sketches/<Project>/<id>.excalidraw` line is
    a drawing the user attached; name its `<id>.png` preview under Where to look. A
-   `> Done: <YYYY-MM-DD HH:MM>` line is when a task was closed, and `> Tags: ...` its tags.
+   `> Done: <YYYY-MM-DD HH:MM>` line is when a task was closed, `> Waiting: <YYYY-MM-DD HH:MM>`
+   when it was marked needs you, and `> Tags: ...` its tags.
    Read it with `deck show <Project>`; never edit a board file (see the CTO's "Changing a
    board").
 3. Use the conversation: if the user said "that bug from earlier", resolve it from what
@@ -38,6 +39,7 @@ Why: <only if the user said or the conversation made it plain; otherwise omit th
 Where to look: <file paths you confirmed exist, or "none confirmed">
 Out of scope: <what not to touch>; no features, refactors or clean-up beyond the goal
 Done when: <a check taken from the user's words> | agent proposes one, states it, then runs it
+Effort: <low|medium|high|xhigh|max, only when the user named one; otherwise omit the line>
 Guesses:
 - <guess> (decides what gets built: yes|no)
 ```
@@ -55,6 +57,8 @@ Guesses:
   which feature, which behaviour, which data, anything hard to undo. Wording and
   obvious readings are "no". When unsure, mark "yes": a question costs less than a
   wrong build.
+- **The lead picks the effort level (#2681).** Write `Effort:` only when the user named a
+  level for this task ("do this one at max"); the lead's own guide decides otherwise.
 - **No examples section.** Point to an existing file that shows the pattern instead.
 - **Small, clear requests pass through almost unchanged.** They still get "Your words",
   "Goal" and "Done when".

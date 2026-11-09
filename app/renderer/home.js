@@ -1,7 +1,7 @@
 // Home as a full-window dashboard of panels: the board in the middle, Me running the full
 // height on its right (#130, #167); the owner's checks sit in the board's columns (#160). The gutter drags to resize;
 // every panel fills Home; Self hides to a tab on the right edge (#190). Sizes are remembered.
-import { groupMe, dueOf, dueLabel, isSomeday, repeatOf, repeatLabel, TODO_SORTS } from '../lib/me.js';
+import { groupMe, dueOf, dueLabel, isSomeday, repeatOf, repeatLabel, TODO_SORTS, TODAY_SORTS } from '../lib/me.js';
 import { parseTasks, historyLabel, itemTags } from '../lib/tasks.js';
 import { sketchesOf } from '../lib/sketches.js';
 import './tip.js';
@@ -53,9 +53,9 @@ export function whenFields(h, due, rep) {
   return { el: h('span', { class: 'whenf' }, day, time, h('span', { class: 'wlab' }, 'repeat every'), every, unit),
     read: () => ({ day: day.value, time: time.value, every: unit.value === 'none' ? 0 : Math.max(1, Number(every.value) || 1), unit: unit.value }) };
 }
-// The To do order (#204): a small picker in the group's heading.
-export const sortPick = (h, value, onChange) => h('select', { class: 'tdsort', title: 'Order of To do', onchange: e => onChange(e.target.value) },
-  Object.entries(TODO_SORTS).map(([v, t]) => h('option', { value: v, selected: v === (value || 'newest') }, t)));
+// The To do order (#204), and Today's on Home (#1386): a small picker in the group's heading.
+export const sortPick = (h, value, onChange, sorts = TODO_SORTS, of = 'To do') => h('select', { class: 'tdsort', title: `Order of ${of}`, onchange: e => onChange(e.target.value) },
+  Object.entries(sorts).map(([v, t]) => h('option', { value: v, selected: v === (value || 'newest') }, t)));
 // A row's due label, with the rhythm when it repeats.
 export function whenLabel(h, icon, t) {
   const due = dueOf(t), rep = repeatOf(t);
@@ -98,7 +98,7 @@ export function renderDash(c) {
   };
 
   // Me: your own reminders, to-dos and notes; never sent to a lead.
-  const g = groupMe(parseTasks(c.meMd || ''), new Date(), L.meSort);
+  const g = groupMe(parseTasks(c.meMd || ''), new Date(), L.meSort, L.meTodaySort || 'newest');
   const meCard = t => {
     const due = dueOf(t), some = isSomeday(t);
     return h('div', { class: 'mecard' + (t.mark === 'x' ? ' done' : ''), onclick: e => { if (!e.target.closest('button')) c.showTask(ME, t); } },
@@ -117,7 +117,8 @@ export function renderDash(c) {
     if (e.key === 'Enter' && noteInput.value.trim()) c.addNote(noteInput.value);
   } });
   const me = panel('me', [h('span', { class: 'st-dot me' }), ' Self'], null,
-    [grp('Today', g.today, 'Nothing due today.'), grp('Reminders', g.reminders), grp('To do', g.todo, null, sortPick(h, L.meSort, v => { c.saveLayout({ ...L, meSort: v }); c.rerender(); })),
+    [grp('Today', g.today, 'Nothing due today.', sortPick(h, L.meTodaySort, v => { c.saveLayout({ ...L, meTodaySort: v }); c.rerender(); }, TODAY_SORTS, 'Today')),
+      grp('Reminders', g.reminders), grp('To do', g.todo, null, sortPick(h, L.meSort, v => { c.saveLayout({ ...L, meSort: v }); c.rerender(); })),
       somedayGroup({ h, list: g.someday, card: meCard, rerender: c.rerender }), doneGroup({ h, list: g.done, card: meCard, rerender: c.rerender }),
       h('div', { class: 'daygrp' }, 'Notes'), h('div', { class: 'note-add' }, noteInput, helperButton({ kind: 'note', project: ME, field: noteInput, onAdd: d => c.addNote(noteText(d)) })),
       c.notes.length ? c.notes.slice(0, 12).map(n => h('div', { class: 'note' }, h('div', { class: 'when' }, n.when), n.text)) : h('div', { class: 'empty-note' }, 'No notes yet.'),
@@ -141,10 +142,16 @@ export function renderDash(c) {
   // Every redraw builds new panels; keep each one's scroll so a drop or a task file
   // written by a session does not jump the board back to the top (#108).
   const scrolls = [...root.querySelectorAll('.pp > .pb')].map(b => [(b.parentElement.className.match(/\bpp-(\w+)/) || [])[1], b.scrollTop, b.scrollLeft]);
+  // Each board column scrolls on its own too, so closing a card far down keeps its place (#1291).
+  const colScrolls = [...root.querySelectorAll('.bcol[data-col] > .bcl')].map(b => [b.parentElement.dataset.col, b.scrollTop]);
   root.replaceChildren(dash);
   for (const [area, top, left] of scrolls) {
     const b = dash.querySelector(`.pp-${area} > .pb`);
     if (b) { b.scrollTop = top; b.scrollLeft = left; }
+  }
+  for (const [key, top] of colScrolls) {
+    const b = dash.querySelector(`.bcol[data-col="${CSS.escape(key)}"] > .bcl`);
+    if (b) b.scrollTop = top;
   }
 
   // Drag the gutter: Me against the board.

@@ -9,3 +9,4 @@ app/renderer/sketch/
 tavern/node_modules/
 app/renderer/tavern/room/
 app/build/seed/
+app/native/bin/

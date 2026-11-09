@@ -9,7 +9,7 @@ test('cardlinks: newest first, one per page across localhost and Tailscale, file
     details: [
       'Review: http://localhost:8731/tmp/caching-preview/ and http://100.101.102.103:8731/tmp/caching-preview/',
       'Docs: https://code.claude.com/docs/en/prompt-caching: says 5 minutes',
-      'Phone: http://100.101.102.103:8731/tmp/caching-short/linkedin-review-draft.mp4 PC: http://localhost:8731/tmp/caching-short/linkedin-review-draft.mp4 file D:\\SideProjects\\Brewlog\\tmp\\caching-short\\linkedin-review-draft.mp4',
+      'Phone: http://100.101.102.103:8731/tmp/caching-short/linkedin-review-draft.mp4 PC: http://localhost:8731/tmp/caching-short/linkedin-review-draft.mp4 file D:\\Projects\\Brewlog\\tmp\\caching-short\\linkedin-review-draft.mp4',
     ],
   };
   const l = cardLinks(task);
@@ -22,4 +22,9 @@ test('cardlinks: newest first, one per page across localhost and Tailscale, file
   // Only a phone address: shown as the PC one. Asked for the phone: kept as it is.
   assert.equal(cardLinks({ result: 'see http://100.101.102.103:8731/a.mp4' })[0].href, 'http://localhost:8731/a.mp4');
   assert.deepEqual(cardLinks({ result: 'see http://100.101.102.103:8731/a.mp4', details: ['the owner asked for a phone link'] }).map(x => x.href), ['http://100.101.102.103:8731/a.mp4']);
+});
+
+test('cardlinks: a lone % in a link or path is shown as it is, not thrown (#1340)', () => {
+  const l = cardLinks({ result: String.raw`see D:\Atlas\docs\banner-50%off.html`, details: ['https://x.com/sale?d=100%'] });
+  assert.deepEqual(l.map(x => x.label), ['banner-50%off.html', 'sale?d=100%']);
 });

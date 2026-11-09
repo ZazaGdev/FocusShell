@@ -6,7 +6,7 @@
   --text:#ededef; --text2:#b4b4ba; --muted:#6e6e76;
   --accent:#9b9bf0; --accent-ink:#16163a;
   --ok:#5fb88a; --warn:#d9a54a; --bad:#e06c6c; --work:#9b9bf0;
-  --ui:"Inter","Segoe UI",system-ui,sans-serif; --head:var(--ui); --mono:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+  --ui:"Inter","Segoe UI",system-ui,sans-serif; --head:var(--ui); --mono:"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
   --r:6px; --r-sm:4px; --tab-h:32px; --fs:12.5px;
   --me:#d993bd; --idea:#e8c45a; --miss:#7fb3e0;
 }
@@ -136,7 +136,15 @@ li.done .t{color:var(--muted)}
 .ph .leads button:hover,.ph button.two:hover{background:var(--surface2);color:var(--text)}
 .ph .leads button.on{background:var(--surface2);color:var(--text)}
 .ph .leads.pick button{border:1px solid var(--line2)}
+.ph .leads button.insplit{box-shadow:inset 0 -2px 0 var(--pc)}
 .body{flex:1;min-height:0;position:relative;padding:6px 0 0 8px}
+/* A pane's leads side by side (#1554): each with its number and state above its terminal. */
+.body.leadsplit{padding:0;display:flex}
+.leadcell{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border-top:2px solid transparent}
+.leadcell.on{border-top-color:var(--pc)}
+.leadcell .lch{flex:none;height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.leadcell .lch .ln{color:var(--text);font-weight:600}
+.leadcell .lch .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .termhost{position:absolute;inset:6px 0 0 8px}
 .termhost .xterm{height:100%}
 .dropzone{position:absolute;inset:-2px 6px 4px -6px;z-index:20;pointer-events:none;display:none;align-items:center;justify-content:center;border:2px dashed var(--accent);border-radius:var(--r);background:color-mix(in srgb,var(--bg) 72%,transparent);animation:dzpulse 1.4s ease-in-out infinite}
@@ -146,6 +154,7 @@ li.done .t{color:var(--muted)}
 @keyframes dzpulse{0%,100%{border-color:var(--accent)}50%{border-color:color-mix(in srgb,var(--accent) 35%,transparent)}}
 @media (prefers-reduced-motion:reduce){.dropzone{animation:none}}
 .xterm .xterm-viewport{background:transparent!important}
+.termhost.altscreen .xterm-scrollable-element>.scrollbar.vertical{display:none}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(11,11,12,.82);z-index:5}
 .overlay div{text-align:center;color:var(--text2)}
 .overlay p{margin:0 0 10px}
@@ -338,6 +347,11 @@ p.readme{margin:0;color:var(--text2);line-height:1.6}
 .tdopt small{display:block;color:var(--accent);font-size:10.5px;font-weight:600;margin-top:1px}
 .tdtalk{display:flex;align-items:flex-end;gap:6px;margin-top:8px;background:var(--pane);border:1px solid var(--line2);border-radius:var(--r);padding:6px 6px 6px 10px}
 .tdtalk:focus-within{border-color:var(--accent)}
+.ashots{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px} .ashots[hidden]{display:none}
+.ashot{position:relative;width:64px;height:48px;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;background:var(--surface2)}
+.ashot img{width:100%;height:100%;object-fit:cover;display:block}
+.ashotx{position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:var(--pane);color:var(--text2);padding:0}
+.ashotx svg{width:12px;height:12px}
 .tdsay{flex:1;background:none;border:0;outline:0;resize:none;padding:3px 0;color:var(--text);font:inherit}
 .tdsay::placeholder{color:var(--muted)}
 .tdtalk .mic{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:var(--text2);background:var(--surface2);flex:none}
@@ -542,7 +556,13 @@ p.readme{margin:0;color:var(--text2);line-height:1.6}
 .lanes.compact .bitem.compact .mini{flex:none;width:20px;height:18px;border-radius:3px;border:1px solid var(--line2);color:var(--text2);font-size:11px;line-height:1;display:grid;place-items:center}
 .lanes.compact .bitem.compact .mini.send{border-color:var(--accent);color:var(--accent)}
 .lanes.compact .bitem.compact .mini:hover{background:var(--surface2)}
-.qtip{position:fixed;z-index:70;max-width:260px;padding:4px 8px;border-radius:var(--r-sm);background:var(--surface2);border:1px solid var(--line2);color:var(--text);font-size:11.5px;line-height:1.35;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+/* The one tooltip (#1035, renderer/tip.js): inverted, so it reads on every theme. */
+.qtip{position:fixed;z-index:1000;max-width:280px;padding:5px 9px;border-radius:5px;background:var(--text);color:var(--bg);font:500 11.5px/1.3 var(--ui);white-space:pre-line;overflow-wrap:anywhere;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:0;transform:scale(.96);transition:opacity .12s ease,transform .12s ease}
+.qtip.on{opacity:1;transform:none}
+.qtip kbd{margin-left:8px;font:10.5px var(--mono);opacity:.65}
+.qtip-arr{position:absolute;width:8px;height:8px;background:var(--text);transform:rotate(45deg)}
+.qtip.below .qtip-arr{top:-4px} .qtip.above .qtip-arr{bottom:-4px}
+@media (prefers-reduced-motion:reduce){.qtip{transition:none;transform:none}}
 
 .tdfiles{display:flex;flex-direction:column;gap:4px;margin:0 0 8px}
 .tdshots{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
@@ -627,6 +647,10 @@ p.readme{margin:0;color:var(--text2);line-height:1.6}
 .wbmeta{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--muted)}
 .wbid{color:var(--warn);font-weight:600}
 .wbopen{margin-left:auto;color:var(--text2)} .wbopen:hover{color:var(--accent)}
+.wbdrop{display:grid;place-items:center;width:22px;height:22px;border-radius:var(--r-sm);color:var(--muted)} .wbdrop:hover{color:var(--text);background:var(--surface2)}
+.wbdrop svg{width:13px;height:13px}
+.wbundo{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--line);background:var(--surface);color:var(--text2);font-size:12.5px}
+.wbundo .btn{margin-left:auto}
 .wbtitle{font-weight:600;margin:4px 0 2px}
 .wbq{color:var(--text2);line-height:1.45;margin:0}
 .wblisten{font-size:11.5px;color:var(--accent);margin-top:6px} .wblisten:empty{display:none}
@@ -796,7 +820,7 @@ article.pcard{background:var(--bg);border:1px solid var(--warn);border-radius:va
 .pcard .pmeta{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11.5px;color:var(--muted)}
 .pcard .pmeta .btn{margin-left:auto;padding:1px 8px;font-size:11px}
 .pcard .plead{color:var(--text2)}
-.pcard .pask{color:var(--text);font-weight:600}
+.pcard .pask{color:var(--text);font-weight:600;overflow-wrap:anywhere}
 .pcard .pdetail{font:11.5px/1.45 var(--mono);color:var(--text2);background:var(--pane,#0b0b0c);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 8px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:140px;overflow:auto}
 .pcard .popts{display:flex;flex-direction:column;align-items:stretch;gap:4px;margin-top:8px}
 .pcard .popts .btn{text-align:left;padding:4px 9px;white-space:normal;overflow-wrap:anywhere}
@@ -879,6 +903,10 @@ article.pcard{background:var(--bg);border:1px solid var(--warn);border-radius:va
 /* #400: in a narrow column the chips give way (cut with ...) so Done and Send stay inside the card. */
 .bcol .brow>:not(.bacts){min-width:0;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bcol .brow>.bacts{flex-shrink:0}
+/* #1208: a chip keeps its padding however far it shrinks, so many tags can still push the row
+   past the card; the row clips and Done or Send stays pinned to its right edge over the cut chips. */
+.bcol .brow{overflow:hidden}
+.bcol .brow>.bacts{position:sticky;right:0;background:var(--bg);padding-left:4px}
 /* #400: answer buttons take their own line under the chips and wrap inside the card. */
 .brow:has(.bacts.answers){flex-wrap:wrap}
 .brow .bacts.answers{flex:1 1 100%;min-width:0;justify-content:flex-end}

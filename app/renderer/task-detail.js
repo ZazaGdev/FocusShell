@@ -9,6 +9,8 @@ import { sketchesOf, sketchName, parseRel } from '../lib/sketches.js';
 import { openSavedSketch } from './sketch.js';
 import { linkedText, folderMenu } from './textlinks.js';
 import { voiceInto } from './voice.js';
+import { pasteShots, withShots } from './pasteshots.js';
+import { VOICE_NAME } from '../lib/platform.js';
 import { whenFields } from './home.js';
 import { dueOf, repeatOf } from '../lib/me.js';
 
@@ -85,14 +87,16 @@ function draw(ctx, extra) {
   // Done beside the title (#168), where it is seen; a done item offers Reopen there.
   const doneBtn = t.mark === 'x' ? h('button', { class: 'btn tddone', onclick: () => setMark(' ') }, 'Reopen')
     : h('button', { class: 'btn primary tddone', title: 'Mark this item done', onclick: () => setMark('x') }, 'Done');
-  const details = t.details.filter(d => !(project === 'Me' ? /^(Version|Priority|Sketch|Screenshot|Due|Repeat|Done|Tags):/i : /^(Version|Priority|Sketch|Screenshot|Done|Tags):/i).test(d));
+  const details = t.details.filter(d => !(project === 'Me' ? /^(Version|Priority|Sketch|Screenshot|Due|Repeat|Done|Waiting|Tags):/i : /^(Version|Priority|Sketch|Screenshot|Done|Waiting|Tags):/i).test(d));
   const shots = screenshotsOf(t);
 
   // Answer first: the question and its options, then a box for anything else.
   const ask = t.mark === '?' ? askOf(t) : null;
   const say = async (text, answer) => {
-    const s = String(text).replace(/\s+/g, ' ').trim();
+    let s = String(text).replace(/\s+/g, ' ').trim();
+    if (pasted.has()) s = withShots(s, await pasted.take());
     if (!s || !(await ctx.talk(s, answer))) return;
+    pasted.clear();
     await deck.addProjectNote(project, `#${t.n} You: ${s}`);
     box.value = ''; box.defaultValue = '';
     refreshTask(t);
@@ -100,7 +104,8 @@ function draw(ctx, extra) {
   const box = h('textarea', { class: 'tdsay', rows: 2, placeholder: ask ? 'Or say something else…' : `Tell the CTO about #${t.n}…`, onkeydown: e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); say(box.value, !!ask); }
   } });
-  const mic = h('button', { class: 'mic', 'data-tip': 'Talk: Windows voice typing writes into this box, then press Send (Ctrl+Shift+Space)', onclick: () => talkIntoCard() }, ctx.icon('mic'));
+  const pasted = pasteShots(h, ctx.icon, deck, box);
+  const mic = h('button', { class: 'mic', 'data-tip': `Talk: ${VOICE_NAME} writes into this box, then press Send (Ctrl+Shift+Space)`, onclick: () => talkIntoCard() }, ctx.icon('mic'));
   const talkBox = h('div', { class: 'tdtalk' }, box, mic,
     h('button', { class: 'btn primary', title: 'Send to the CTO (Enter)', onclick: () => say(box.value, !!ask) }, 'Send'));
   const sug = ask && ask.suggest;
@@ -132,9 +137,9 @@ function draw(ctx, extra) {
       // Copy: a reference to this item to paste into a prompt or a note (#107).
       h('button', { class: 'btn ghost tdcopy', title: 'Copy a reference to this item', onclick: async () => {
         const ref = `${project} #${t.n}: ${t.text}`;
-        try { await navigator.clipboard.writeText(ref); ctx.toast(`Copied: ${ref}`); } catch { ctx.toast('Could not copy to the clipboard', true); }
+        try { await window.deck.copyText(ref); ctx.toast(`Copied: ${ref}`); } catch { ctx.toast('Could not copy to the clipboard', true); }
       } }, 'Copy')),
-    h('div', { class: 'tdhead' }, titleBox, doneBtn), tldr, opts, talkBox, thread,
+    h('div', { class: 'tdhead' }, titleBox, doneBtn), tldr, opts, talkBox, pasted.strip, thread,
     plan ? planRow(ctx, plan) : null,
     project === 'Me' && t.mark !== 'x' ? section('When', whenRow(ctx)) : null,
     section('Details', details.length ? details.map(d => linkedText('p', { class: 'tdp' }, d, links)) : h('div', { class: 'empty-note' }, 'No details beyond the title.')),

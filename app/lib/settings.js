@@ -18,10 +18,11 @@ export const DEFAULTS = {
   tags: ['Research'],    // the tags items can carry as badges and boards filter by (#224)
   tavernLooks: {},       // the tavern's characters the owner picked (#240): { 'cto'|'pm'|project: [col, row] }
   tavernRobots: {},      // the tavern robot each project wears (#358): { project: robot, '*': every other project }; empty picks one from the name
+  classicView: false,    // sessions start in Claude Code's classic view, so their history is in the pane and its find bar (#1272)
   remoteControl: false,  // sessions start under Claude Code's Remote Control, reachable from claude.ai (#346)
   backupPush: false,     // the hourly board backup also pushes to the data folder's git remote (#346)
   plugins: {},           // each plugin's on/off, shortcut and settings (#369): { id: { on, shortcut?, settings } }
-  statusEvery: 30,       // minutes between Status refresh asks to a CTO (#1034): one of STATUS_EVERY
+  statusEvery: 30,       // minutes the owner is away before a Status refresh ask to a CTO (#1034, #1699): one of STATUS_EVERY
   theme: 'graphite',     // Preferences (#1026): the colour theme, one of THEMES
   space: 'normal',       // how roomy the app is, one of SPACES
   font: 'inter',         // the app's font, one of FONTS (terminals keep their own)
@@ -91,6 +92,7 @@ export function normalizeSettings(raw) {
       .filter(([k, v]) => k && Array.isArray(v) && v.length === 2 && v.every(Number.isInteger))),
     tavernRobots: Object.fromEntries(Object.entries(s.tavernRobots && typeof s.tavernRobots === 'object' ? s.tavernRobots : {})
       .filter(([k, v]) => k && typeof v === 'string' && /^[a-z0-9-]+$/.test(v))),
+    classicView: s.classicView === true,
     remoteControl: s.remoteControl === true,
     backupPush: s.backupPush === true,
     plugins: normalizePluginsEntry(s.plugins),

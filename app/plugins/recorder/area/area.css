@@ -8,6 +8,7 @@
   --muted: #a3a7b0;
   --hover: #2e3137;
   --rec: #e5484d;
+  --live: #3dd68c;
   --edge: #ffffff;
 }
 * { box-sizing: border-box; }
@@ -51,8 +52,12 @@ body.barwin { background: transparent; }
 .grip { display: inline-flex; align-items: center; gap: 8px; flex: 1; height: 100%; -webkit-app-region: drag; cursor: move; }
 .grip .dot { animation: blink 1.2s steps(2, start) infinite; }
 .time { font-variant-numeric: tabular-nums; min-width: 34px; }
-.mic { color: var(--muted); }
+.mic { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .mic.off { text-decoration: line-through; }
+/* #1792: lit while the mic hears the owner. */
+.mic svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; transition: color .1s, filter .1s; }
+.mic.live { color: var(--live); }
+.mic.live svg { filter: drop-shadow(0 0 4px var(--live)); }
 .tbtn.stop { background: var(--hover); }
 .tbtn.stop:hover { background: var(--rec); color: #fff; }
 @keyframes blink { to { visibility: hidden; } }

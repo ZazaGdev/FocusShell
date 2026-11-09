@@ -6,6 +6,7 @@
 // (only the newest copy counts), closed on its board, marked seen or put off for later drops
 // out, and so does anything already on Waiting on you (#412).
 import { parseTasks, askOf } from './tasks.js';
+import { MAC, MAC_PATH } from './platform.js';
 
 export const WPS = 4;                 // reading speed, words a second
 export const LATER_MS = 2 * 3600e3;   // "Later" hides a card this long
@@ -47,7 +48,8 @@ export function conversation(log) {
   return out;
 }
 
-const PATH_RE = /(?:[A-Za-z]:[\\/][^\s"'<>|*?`]+|https?:\/\/[^\s"'<>`)]+)/;
+// A Mac reply's paths count too (#2562).
+const PATH_RE = new RegExp(String.raw`(?:${MAC ? `${MAC_PATH}|` : ''}[A-Za-z]:[\\/][^\s"'<>|*?` + '`' + String.raw`]+|https?:\/\/[^\s"'<>` + '`' + ')]+)');
 const LIST_RE = /^\s*(?:(\d+)[.)]|[-*•●])\s+/;
 const TAG_RE = /\b([A-Z][A-Za-z0-9_-]*) #(\d+)\b/;
 const plain = s => String(s).replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim();

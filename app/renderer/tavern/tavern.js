@@ -56,7 +56,7 @@ export function refresh() {
   const waiting = agents.filter(a => a.state === 'asking').length;
   const badge = btn.querySelector('.tavbadge');
   badge.textContent = String(waiting); badge.hidden = !waiting;
-  btn.title = waiting ? `The tavern: ${waiting} waiting at the bar` : 'The tavern: your agents as guests';
+  btn.dataset.tip = waiting ? `The tavern: ${waiting} waiting at the bar` : 'The tavern: your agents as guests';
   if (tavernOpen() && scene) {
     scene.setCast(cast(agents));
     showLight();
@@ -136,7 +136,7 @@ function showLight() {
   if (!lightBtn) return;
   const night = (pinned || (scene && scene.light)) !== 'day';
   lightBtn.replaceChildren(c.icon(night ? 'sun' : 'moon'));
-  lightBtn.title = night ? 'Switch to day' : 'Switch to night';
+  lightBtn.dataset.tip = night ? 'Switch to day' : 'Switch to night';
 }
 function toggleLight() {
   if (!scene) return;

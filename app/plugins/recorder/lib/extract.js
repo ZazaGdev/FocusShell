@@ -20,18 +20,55 @@ export function namedProjects(lines, projects) {
 // the words, so the screenshots are picked from inside the span.
 export const transcriptText = lines => (lines || []).map(l => `[${clock(l.at)}${Number.isFinite(l.end) && l.end > l.at ? `-${clock(l.end)}` : ''}] ${l.text}`).join('\n');
 
-// The system prompt. ctx: { projects: [names], open: { project: [{ n, title }] }, now: Date }
-export function extractPrompt({ projects, open, now }) {
+// A project's own words about itself in one line (#2185): the first lines of its CLAUDE.md or
+// README.md that are not headings, front matter, code or lists, cut at about 200 characters.
+export function aboutLine(md) {
+  const out = [];
+  let fence = false, front = false;
+  for (const [i, raw] of String(md || '').split(/\r?\n/).entries()) {
+    const l = raw.trim();
+    if (i === 0 && l === '---') { front = true; continue; }
+    if (front) { if (l === '---') front = false; continue; }
+    if (l.startsWith('```')) { fence = !fence; continue; }
+    if (fence || !l || /^(#|>|[-*+|]\s|\d+\.\s|<|!\[)/.test(l)) { if (out.length && !l) break; continue; }
+    out.push(l);
+  }
+  const s = line(out.join(' ').replace(/[*_`]/g, ''));
+  return s.length > 200 ? `${s.slice(0, 200).replace(/\s+\S*$/, '')}...` : s;
+}
+
+// The seconds to take a picture of the screen at, for the card step to see which project is on
+// screen (#2185): one every 15 seconds, at most 16 spread over a longer recording.
+export function frameTimes(duration) {
+  const d = Math.max(0, Number(duration) || 0);
+  if (!d) return [];
+  const gap = Math.max(15, d / 16), out = [];
+  for (let t = Math.min(3, d / 2); t < d && out.length < 16; t += gap) out.push(Math.round(t));
+  return out;
+}
+export const frameName = secs => shotName(secs).replace(/\.png$/, '.jpg');
+
+// The message for the card step: the timed transcript, then the screen frames when there are.
+// frames: [{ at, path }]
+export function extractText(lines, frames) {
+  const f = (frames || []).map(x => `[${clock(x.at)}] ${x.path}`);
+  return transcriptText(lines) + (f.length ? `\n\nScreen frames (read each one with the Read tool):\n${f.join('\n')}` : '');
+}
+
+// The system prompt. ctx: { projects: [names], about: { project: its CLAUDE.md or README.md },
+// open: { project: [{ n, title }] }, now: Date, frames: whether the message lists screen frames }
+export function extractPrompt({ projects, about, open, now, frames }) {
   const d = now || new Date();
   const stamp = `${DAYS[d.getDay()]} ${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
   const out = [
     'You turn a spoken screen recording into work items for the owner\'s boards in FocusShell.',
     'The owner talked while working on screen. The message holds the transcript, each line with its [mm:ss-mm:ss] start and end. Whisper wrote it, so names may be split or misspelled ("focus shell" is FocusShell), and a line\'s start often falls a second or more before its words, in the pause before them, while the screen may still show what came before.',
     `Now: ${stamp} (the owner's local time).`,
+    ...(frames ? ['After the transcript the message lists screen frames: a picture of the screen at that second. Read every frame with the Read tool before answering. They show which app, site, page or file the owner is talking about, since the owner often says only "this page" or "here".'] : []),
     '',
     'Make one card for each separate thing the owner wants done, wants kept as a note, or wants to be reminded of. Rules:',
     '- kind: "task" for work on a project that a developer agent will carry out; "note" for something to keep with no action; "reminder" for something the owner must do themselves at a time.',
-    '- project: one of the project names below, exactly as written, when the owner names it or the talk is clearly about it; otherwise "Me". Reminders are always "Me".',
+    '- project: the project the card is about, one of the project names below exactly as written. Work it out from the words and from what is on screen (the app, site, domain, page, window title or file shown), using what each project is. "Me" only for the owner\'s personal things that are no project\'s work, and reminders are always "Me". When a card is about project work but you cannot tell which project, "?"; never "Me" for project work.',
     '- title: one plain line, an imperative for tasks, at most 80 characters, no full stop at the end.',
     '- description: 2 to 6 short lines that someone who never heard the recording can act on: what is wrong or wanted, where (project, page, screen, file or feature), and what done looks like. Use only what was said and what the talk says is on screen; never invent details.',
     '- quote: the owner\'s own words the card comes from, shortened when long.',
@@ -47,6 +84,8 @@ export function extractPrompt({ projects, open, now }) {
     '',
     `Projects: ${(projects || []).join(', ') || '(none)'}`,
   ];
+  const known = (projects || []).map(p => [p, aboutLine((about || {})[p])]).filter(([, a]) => a);
+  if (known.length) out.push('', 'What each project is:', ...known.map(([p, a]) => `- ${p}: ${a}`));
   for (const [p, items] of Object.entries(open || {})) {
     if (!items || !items.length) continue;
     out.push('', `Open items in ${p}:`, ...items.slice(0, OPEN_CAP).map(t => `- #${t.n} ${t.title}`));
@@ -70,7 +109,8 @@ export function settleShot(t, lines) {
 }
 
 // Claude's reply into cards. Throws when the reply holds no {"cards": [...]}; anything odd in
-// a card is mended: an unknown project is Me, an unknown kind a task, shots kept inside the
+// a card is mended: an unknown project is '' (the review asks for one, #2185; it was Me, which
+// sent no project work to the CTO), an unknown kind a task, shots kept inside the
 // recording and out of the start of their transcript line. o: { projects, open, duration
 // (seconds), lines (the timed transcript) }
 export function parseCards(text, o) {
@@ -84,7 +124,7 @@ export function parseCards(text, o) {
   for (const c of j.cards) {
     if (!c || typeof c !== 'object' || !title(c.title)) continue;
     const kind = KINDS.includes(c.kind) ? c.kind : 'task';
-    const project = kind === 'reminder' ? 'Me' : byName.get(squash(c.project)) || 'Me';
+    const project = kind === 'reminder' || squash(c.project) === 'me' ? 'Me' : byName.get(squash(c.project)) || '';
     const at = clamp(Number(c.at) || 0);
     const seen = new Set(), shotAt = [];
     for (const t of Array.isArray(c.shots) ? c.shots : []) {
@@ -96,7 +136,7 @@ export function parseCards(text, o) {
     }
     if (!shotAt.length) shotAt.push(at);
     const desc = (Array.isArray(c.description) ? c.description : String(c.description ?? '').split(/\r?\n/)).map(line).filter(Boolean);
-    const merge = project === 'Me' ? null : ((o.open || {})[project] || []).find(t => t.n === Number(c.mergeInto)) || null;
+    const merge = project === 'Me' || !project ? null : ((o.open || {})[project] || []).find(t => t.n === Number(c.mergeInto)) || null;
     out.push({ id: `c${out.length + 1}`, kind, project, title: title(c.title), description: desc.join('\n'), quote: line(c.quote),
       at, shotAt, shots: [], due: kind === 'reminder' && DUE.test(String(c.due)) ? String(c.due) : '',
       mergeInto: merge ? merge.n : null, mergeTitle: merge ? merge.title : '', status: 'open', placed: null, mark: null, before: null });

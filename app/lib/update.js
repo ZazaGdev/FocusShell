@@ -7,7 +7,11 @@ export function updatesOn({ packaged, smoke, tryRun, demo }) {
   return packaged === true && !smoke && !tryRun && !demo;
 }
 
-// The title bar's words for an update, or '' when there is nothing to show.
+// The title bar's words for an update, or '' when there is nothing to show. On a Mac the
+// unsigned app cannot install an update (#2562): it only says a new version is out, and the
+// button opens the release page to download it.
 export function updateLabel(state) {
+  if (state && state.manual && state.latest) return `New version: v${state.latest}`;
   return state && state.ready && state.latest ? `Update ready: v${state.latest}` : '';
 }
+export const RELEASES_URL = 'https://github.com/ZazaGdev/FocusShell/releases/latest';

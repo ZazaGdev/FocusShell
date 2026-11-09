@@ -4,9 +4,13 @@ export function h(tag, attrs, ...kids) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') e.className = v; else if (k === 'style') e.style.cssText = v;
-    else if (k.startsWith('on')) e[k] = v; else e.setAttribute(k, v === true ? '' : v);
+    else if (k.startsWith('on')) e[k] = v;
+    // title is the app's own tooltip (tip.js), never the browser's (#1035).
+    else if (k === 'title') e.dataset.tip = v;
+    else e.setAttribute(k, v === true ? '' : v);
   }
   for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; e.append(k instanceof Node ? k : document.createTextNode(String(k))); }
+  if (e.dataset.tip && !e.hasAttribute('aria-label') && !e.textContent.trim()) e.setAttribute('aria-label', e.dataset.tip);
   return e;
 }
 const ICONS = {
@@ -40,5 +44,5 @@ export function toast(msg, err, action) {
       h('button', { class: 'toastbtn', title: 'Close', onclick: () => t.remove() }, action.later || '×'));
   }
   document.getElementById('toasts').append(t);
-  if (!action) setTimeout(() => t.remove(), err ? 6000 : 2600);
+  if (!action || action.ms) setTimeout(() => t.remove(), action ? action.ms : err ? 6000 : 2600);
 }

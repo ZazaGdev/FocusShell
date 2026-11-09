@@ -1,6 +1,6 @@
 // VS Code from FocusShell: a project opened in the VS Code app, and the Code pane (#25), one
 // `code serve-web` serving every project inside the window. Kept out of main.js.
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +10,11 @@ import http from 'node:http';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { projectForPath } from './lib/projects.js';
-import { serveWebArgs, servePort, codeUrl, isCodeUrl, orphanServers } from './lib/codeweb.js';
+import { serveWebArgs, servePort, codeUrl, isCodeUrl, orphanServers, macCodePaths, parsePs, PS_ARGS } from './lib/codeweb.js';
+import { isAbsPath, onDisk } from './lib/localpath.js';
+import { isWin, killTree } from './lib/shell.js';
+
+const WIN = isWin();
 import { syncServer, pageFiles, pageSyncScript, desktopThemeBase } from './lib/codesync.js';
 
 // Whether a file's path is inside a folder (both real paths), ignoring case as Windows does.
@@ -23,12 +27,12 @@ export function registerCodeWeb(d) {
   // folder (VS Code reuses the window if the folder is already open). A file outside every
   // project opens with its own folder. Without the `code` command, the vscode:// link is used.
   ipcMain.handle('project:code', async (_e, name, file) => {
-    const f = file && /^[A-Za-z]:[\\/]/.test(file) && fs.existsSync(path.normalize(file)) ? path.normalize(file) : null;
+    const f = file && isAbsPath(file) && fs.existsSync(onDisk(file)) ? onDisk(file) : null;
     if (file && !f) return false;
     const p = name ? findProject(name) : projectForPath(loadProjects().projects, f);
     const folder = p ? p.path : f && (fs.statSync(f).isDirectory() ? f : path.dirname(f));
     if (!folder) return false;
-    const exe = codeExe();
+    const exe = WIN ? codeExe() : mac() && mac().cli;
     // Started directly, never through cmd, so a path holding & or ^ cannot run anything.
     if (exe) spawn(exe, f && f !== folder ? [folder, f] : [folder], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
     else shell.openExternal('vscode://file/' + (f || folder).split(path.sep).join('/'));
@@ -40,6 +44,19 @@ export function registerCodeWeb(d) {
     for (const d of (process.env.PATH || '').split(path.delimiter)) if (d && fs.existsSync(path.join(d, 'code.cmd'))) dirs.push(path.dirname(d));
     return dirs.map(d => path.join(d, 'Code.exe')).find(p => fs.existsSync(p)) || null;
   }
+  // On a Mac (#2562): the app bundle's code and code-tunnel.
+  const mac = () => macCodePaths(os.homedir(), p => fs.existsSync(p), (process.env.PATH || '').split(':'), p => { try { return fs.realpathSync(p); } catch { return p; } });
+  // The folder that holds VS Code's resources\app (Code.exe's folder; a Mac bundle's Contents).
+  const codeHome = () => {
+    if (WIN) { const exe = codeExe(); return exe ? path.dirname(exe) : ''; }
+    const m = mac(); return m ? path.resolve(m.cli, '..', '..', '..', '..') : '';
+  };
+  const resApp = d => path.join(d, WIN ? 'resources' : 'Resources', 'app');
+  const tunnelCli = () => {
+    if (!WIN) { const m = mac(); return m && fs.existsSync(m.tunnel) ? m.tunnel : null; }
+    const exe = codeExe(), cli = exe && path.join(path.dirname(exe), 'bin', 'code-tunnel.exe');
+    return cli && fs.existsSync(cli) ? cli : null;
+  };
 
   // The Code pane (#25): one `code serve-web` from the installed VS Code serves every
   // project, on a free local port with a secret token. It starts on first use and stops
@@ -54,8 +71,8 @@ export function registerCodeWeb(d) {
   const step = (key, status) => { const t = Date.now(), was = steps[key]; steps = { ...steps, [key]: { status, ms: status === 'now' ? 0 : t - ((was && was.since) || t), since: status === 'now' ? t : (was && was.since) } }; tellSteps(); };
   function startCodeWeb() {
     if (codeWeb) return codeWeb.ready;
-    const exe = codeExe(), cli = exe && path.join(path.dirname(exe), 'bin', 'code-tunnel.exe');
-    if (!cli || !fs.existsSync(cli)) return Promise.resolve(null);
+    const cli = tunnelCli();
+    if (!cli) return Promise.resolve(null);
     const token = randomUUID();
     codeWeb = { child: null, token, port: 0 };
     steps = {};
@@ -79,20 +96,27 @@ export function registerCodeWeb(d) {
   // Ends servers for our data folder that an FocusShell which quit without stopping them left
   // running (#196); the server of an FocusShell still running keeps its parent and is left alone.
   function stopOrphans() {
-    const ps = "Get-CimInstance Win32_Process | % { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; created = if ($_.CreationDate) { [long]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds } else { 0 }; cmd = $_.CommandLine } } | ConvertTo-Json -Compress";
+    if (!WIN) {
+      return new Promise(resolve => execFile('ps', PS_ARGS, { timeout: 15000, maxBuffer: 64 * 1024 * 1024 }, (err, out) => {
+        for (const pid of orphanServers(err ? [] : parsePs(out), CODE_SERVER)) killTree(pid);
+        resolve();
+      }));
+    }
+    const ps ="Get-CimInstance Win32_Process | % { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; created = if ($_.CreationDate) { [long]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds } else { 0 }; cmd = $_.CommandLine } } | ConvertTo-Json -Compress";
     return new Promise(resolve => execFile('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024 * 1024 }, (err, out) => {
       let procs = [];
       try { procs = err ? [] : JSON.parse(String(out)); } catch { /* none */ }
-      for (const pid of orphanServers(procs, CODE_SERVER)) { try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch { /* gone */ } }
+      for (const pid of orphanServers(procs, CODE_SERVER)) killTree(pid);
       resolve();
     }));
   }
-  // The owner's Windows VS Code settings and extensions, copied one way before each start (#96).
-  const CODE_USER = path.join(process.env.APPDATA || '', 'Code', 'User');
+  // The owner's Windows VS Code settings and extensions, copied one way before each start (#96);
+  // a Mac keeps them in Application Support.
+  const CODE_USER = WIN ? path.join(process.env.APPDATA || '', 'Code', 'User') : path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User');
   // A smoke or try run from the same data folder as the running app (the main checkout) gets a
   // folder of its own (#1114): two servers on one folder, and an extension copy into the live
   // server's folder, are what the live server's log showed going wrong.
-  const CODE_SERVER = path.join(P.state, SMOKE ? path.join('smoke', 'vscode-server') : 'vscode-server');
+  const CODE_SERVER = path.join(P.big || P.state, SMOKE ? path.join('smoke', 'vscode-server') : 'vscode-server');
   let codeTheme = null; // the desktop theme's kind (vs, vs-dark, ...), so the pane waits for it
   // A file clicked while its pane is open goes to the pane as a request in CODE_OPEN, which
   // FocusShell's own extension in that pane opens as a new tab (#365).
@@ -125,7 +149,8 @@ export function registerCodeWeb(d) {
     // FOCUSSHELL_CODE_CLI_DIR gives the CLI an empty cache of its own, so a test sees a new PC's
     // first start, server download and all (#1114).
     const cliDir = process.env.FOCUSSHELL_CODE_CLI_DIR ? ['--cli-data-dir', process.env.FOCUSSHELL_CODE_CLI_DIR] : [];
-    const child = spawn(cli, [...serveWebArgs(CODE_TOKEN, CODE_SERVER, want.port), ...cliDir], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FOCUSSHELL_OPEN_DIR: CODE_OPEN } });
+    // On a Mac it leads its own process group, so stopping it ends the server it starts too.
+    const child = spawn(cli, [...serveWebArgs(CODE_TOKEN, CODE_SERVER, want.port), ...cliDir], { windowsHide: true, detached: !WIN, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FOCUSSHELL_OPEN_DIR: CODE_OPEN } });
     codeWeb.child = child;
     step('start', 'now');
     const port = await new Promise(resolve => {
@@ -147,7 +172,7 @@ export function registerCodeWeb(d) {
   // code-tunnel starts the server as a child of its own, so the whole tree is ended.
   function stopCodeWeb() {
     if (!codeWeb) return;
-    if (codeWeb.child) try { execFileSync('taskkill', ['/PID', String(codeWeb.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch { /* gone */ }
+    if (codeWeb.child) killTree(codeWeb.child.pid);
     try { fs.rmSync(CODE_TOKEN, { force: true }); } catch { /* gone */ }
     try { fs.rmSync(CODE_OPEN, { recursive: true, force: true }); } catch { /* gone */ }
     codeWeb = null;
@@ -157,8 +182,8 @@ export function registerCodeWeb(d) {
   // second lead's worktree, #126); a file outside it opens too, on its own.
   const real = d => { try { return fs.realpathSync.native(d); } catch { return d; } };
   async function paneDir(p, file, sessionId) {
-    const f = file ? path.normalize(String(file)) : null;
-    const ok = !!f && /^[A-Za-z]:[\\/]/.test(f) && fs.existsSync(f) && fs.statSync(f).isFile();
+    const f = file ? onDisk(String(file)) : null;
+    const ok = !!f && isAbsPath(f) && fs.existsSync(f) && fs.statSync(f).isFile();
     const sess = sessionId ? sessions.get(sessionId) : null;
     let dir = sess && sess.cwd && fs.existsSync(sess.cwd) ? sess.cwd : p.path;
     // A file outside that folder (#292), such as one in a worktree elsewhere, opens with its own
@@ -190,14 +215,14 @@ export function registerCodeWeb(d) {
   // its version, the internet its first start downloads the server over, and the local port.
   ipcMain.handle('code:requirements', async () => {
     if (SMOKE) return { installed: 'C:\\Program Files\\Microsoft VS Code', version: '1.141.1', internet: true, port: true };
-    const exe = codeExe(), dir = exe ? path.dirname(exe) : '';
+    const dir = codeHome();
     let version = '';
-    try { version = JSON.parse(fs.readFileSync(path.join(dir, 'resources', 'app', 'package.json'), 'utf8')).version || ''; } catch { /* a newer layout keeps it elsewhere */ }
+    try { version = JSON.parse(fs.readFileSync(path.join(resApp(dir), 'package.json'), 'utf8')).version || ''; } catch { /* a newer layout keeps it elsewhere */ }
     // A newer VS Code keeps each version in a folder named after its commit; the newest is in use.
     if (!version && dir) {
       try {
         const sub = fs.readdirSync(dir).filter(n => /^[0-9a-f]{10}$/.test(n)).map(n => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((a, b) => b.t - a.t)[0];
-        if (sub) version = JSON.parse(fs.readFileSync(path.join(dir, sub.n, 'resources', 'app', 'package.json'), 'utf8')).version || '';
+        if (sub) version = JSON.parse(fs.readFileSync(path.join(resApp(path.join(dir, sub.n)), 'package.json'), 'utf8')).version || '';
       } catch { /* unknown */ }
     }
     const internet = await new Promise(res => { const r = https.get('https://update.code.visualstudio.com/', s => { s.resume(); res(true); }); r.on('error', () => res(false)); r.setTimeout(5000, () => { r.destroy(); res(false); }); });
@@ -205,6 +230,40 @@ export function registerCodeWeb(d) {
     const port = codeWeb && codeWeb.port ? await answers(codeWeb.port) : await portFree(0);
     return { installed: dir, version, internet, port };
   });
+  // The first Code pane asks before anything big happens (#1124): VS Code downloading its web
+  // server from Microsoft, and FocusShell copying the desktop VS Code's extensions. Asked once,
+  // and not at all where the installed VS Code's server is already downloaded.
+  const CONSENT = path.join(P.state, 'code-consent.json');
+  const cliDir = () => process.env.FOCUSSHELL_CODE_CLI_DIR || path.join(os.homedir(), '.vscode', 'cli');
+  function codeCommit() {
+    const dir = codeHome();
+    const read = d => { try { return JSON.parse(fs.readFileSync(path.join(resApp(d), 'product.json'), 'utf8')).commit || ''; } catch { return ''; } };
+    if (!dir) return '';
+    const sub = (() => { try { return fs.readdirSync(dir).filter(n => /^[0-9a-f]{10}$/.test(n)).map(n => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((a, b) => b.t - a.t)[0]; } catch { return null; } })();
+    return read(dir) || (sub ? read(path.join(dir, sub.n)) : '');
+  }
+  async function folderMB(dir) {
+    let bytes = 0;
+    const walk = async d => {
+      let list = []; try { list = await fs.promises.readdir(d, { withFileTypes: true }); } catch { return; }
+      for (const e of list) { const f = path.join(d, e.name); if (e.isDirectory()) await walk(f); else try { bytes += (await fs.promises.stat(f)).size; } catch { /* gone */ } }
+    };
+    await walk(dir);
+    return Math.round(bytes / 1048576);
+  }
+  ipcMain.handle('code:consent', async () => {
+    if (SMOKE || fs.existsSync(CONSENT)) return { needed: false };
+    const commit = codeCommit(), serveWeb = path.join(cliDir(), 'serve-web');
+    if (commit && fs.existsSync(path.join(serveWeb, commit))) return { needed: false };
+    const ext = path.join(os.homedir(), '.vscode', 'extensions');
+    let count = 0; try { count = fs.readdirSync(ext, { withFileTypes: true }).filter(e => e.isDirectory()).length; } catch { /* none */ }
+    // A server already downloaded for another VS Code version gives the real size; else ~600 MB,
+    // what one takes on disk on the PC this was built on.
+    let serverMB = 600;
+    try { const one = fs.readdirSync(serveWeb).find(n => /^[0-9a-f]{40}$/.test(n)); if (one) serverMB = await folderMB(path.join(serveWeb, one)); } catch { /* none yet */ }
+    return { needed: true, serverMB, extMB: count ? await folderMB(ext) : 0, extCount: count, to: P.big || P.state };
+  });
+  ipcMain.handle('code:agree', () => { try { fs.mkdirSync(P.state, { recursive: true }); fs.writeFileSync(CONSENT, JSON.stringify({ at: new Date().toISOString() })); } catch { /* asked again next time */ } return true; });
   // The Code pane's start log (#1114): one line per step of each try, so a start that hangs
   // shows where. Kept short: the newest 300 lines.
   const CODE_LOG = path.join(P.state, SMOKE ? 'smoke-code-log.txt' : 'code-log.txt');
@@ -240,10 +299,11 @@ export function registerCodeWeb(d) {
     const s = await startCodeWeb();
     if (!s) {
       const failed = Object.keys(steps).find(k => steps[k].status === 'failed');
-      return { error: !codeExe() ? 'VS Code is not installed on this PC.'
-        : failed === 'check' ? 'The VS Code server started but does not answer. A firewall or antivirus may be blocking code-tunnel.exe.'
+      const missing = !codeHome();
+      return { error: missing ? `VS Code is not installed on this ${WIN ? 'PC' : 'Mac'}.`
+        : failed === 'check' ? `The VS Code server started but does not answer. A firewall or antivirus may be blocking ${WIN ? 'code-tunnel.exe' : 'code-tunnel'}.`
         : failed === 'start' ? 'The VS Code server did not start within a minute.'
-        : 'Could not start VS Code.', missing: !codeExe() };
+        : 'Could not start VS Code.', missing };
     }
     // Every listed project's folder is trusted in the pane from the start (#226), as is the
     // folder it opens (a lead's worktree); a folder reached through a link both ways.
@@ -252,13 +312,13 @@ export function registerCodeWeb(d) {
   });
   // A clicked path that is a file on disk, normalised, or null (a folder, or not there).
   ipcMain.handle('path:file', (_e, file) => {
-    const f = /^[A-Za-z]:[\\/]/.test(String(file || '')) ? path.normalize(String(file)) : null;
+    const f = isAbsPath(String(file || '')) ? onDisk(String(file)) : null;
     try { return f && fs.statSync(f).isFile() ? f : null; } catch { return null; }
   });
   // The project a file belongs to (the deepest folder that holds it), or null. A path through
-  // a link (G:\SideProjects is a link to D:\SideProjects) is matched by real path too.
+  // a link (a G: folder that is a link to one on D:) is matched by real path too.
   ipcMain.handle('project:forFile', (_e, file) => {
-    const f = /^[A-Za-z]:[\\/]/.test(String(file || '')) ? path.normalize(String(file)) : null;
+    const f = isAbsPath(String(file || '')) ? onDisk(String(file)) : null;
     const real = p => { try { return fs.realpathSync.native(p); } catch { return p; } };
     const list = loadProjects().projects;
     const p = f && fs.existsSync(f) ? projectForPath(list, f) || projectForPath(list.map(x => ({ ...x, path: real(x.path) })), real(f)) : null;

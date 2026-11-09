@@ -2,7 +2,7 @@
 // session in ~/.claude/projects/<encoded folder>/<session id>.jsonl. The format is
 // internal to Claude Code, so unknown lines are skipped rather than trusted.
 
-// "G:\SideProjects\Streaky" -> "G--SideProjects-Streaky"
+// "G:\Projects\Streaky" -> "G--Projects-Streaky"
 export function encodeProjectDir(folder) {
   return String(folder).replace(/[^A-Za-z0-9]/g, '-');
 }
@@ -53,4 +53,22 @@ export function lastConversation(files, name) {
   const tag = `"customTitle":${JSON.stringify(name)}`;
   const hit = [...files].sort((a, b) => b.mtime - a.mtime).find(f => f.text.includes(tag));
   return hit ? hit.id : null;
+}
+
+// How many background subagents a conversation still runs (#2706). Claude Code writes a meta
+// file beside each subagent's log ("requestShape": "background" for one started in the
+// background) and adds "finished": true when it ends. metas: the parsed meta files.
+export const runningSubagents = metas => (metas || []).filter(m => m && m.requestShape === 'background' && m.finished !== true).length;
+
+// The conversation a pane is writing now (#1887): the newest log named after it, unless a newer
+// log carries no name at all. That is the pane's Claude exited and started again by hand in the
+// shell the pane falls back to (#353), so it runs without -n. A log named after another session
+// (a group CTO in the same folder) never counts. files: as lastConversation, written since the
+// pane started.
+const NAMED = /^\{"type":"(custom-title|agent-name)"/m;
+export function paneConversation(files, name) {
+  const named = lastConversation(files, name);
+  const at = named ? files.find(f => f.id === named).mtime : -Infinity;
+  const bare = [...files].sort((a, b) => b.mtime - a.mtime).find(f => f.mtime > at && !NAMED.test(f.text));
+  return bare ? bare.id : named;
 }

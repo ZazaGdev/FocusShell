@@ -13,7 +13,7 @@ const EDIT_MS = 400;
 export function shapeOf(st) {
   const s = st.session;
   if (!s) return 'none';
-  return JSON.stringify([s.id, s.state, s.step, s.error, (st.projects || []).length, s.rev || 0, st.brainstormId || null,
+  return JSON.stringify([s.id, s.state, s.step, s.error, (st.projects || []).length, s.rev || 0, st.brainstormId || null, s.about || '',
     (s.cards || []).map(c => [c.id, c.status, c.kind, c.project, c.due, c.mergeInto, c.shots, c.placed, c.mark])]);
 }
 
@@ -35,7 +35,18 @@ export function reviewScreen(a) {
     return h('div', { class: 'recwrap' }, h('p', { class: 'sub' }, 'Nothing in the talk turned into a card. Open the transcript to check what was heard.'));
   }
   const open = cards.filter(c => c.status === 'open');
+  // After a regenerate: where the earlier read's cards went, so none is accepted twice (#2185).
+  const earlier = (s.earlier || []).map(c => (c.placed.n != null ? `${c.placed.board} #${c.placed.n}` : `${c.placed.board} notes`));
+  // "This recording is about" (#2185): one pick gives every card with no project yet its board.
+  const unplaced = open.filter(c => !c.project).length, projects = (st.projects || []).filter(p => p !== 'Me');
+  const about = open.length ? h('label', { class: 'recabout' }, 'This recording is about',
+    h('select', { class: 'inp recsel', disabled: busy, onchange: e => ui.invoke('about', e.target.value) },
+      h('option', { value: '', selected: !s.about, disabled: true }, 'Pick a project'),
+      projects.map(p => h('option', { value: p, selected: p === s.about }, p))),
+    unplaced ? h('span', { class: 'plugerr' }, `${unplaced} ${unplaced === 1 ? 'card has' : 'cards have'} no project yet`) : null) : null;
   return h('div', { class: 'recwrap recreview' + (busy ? ' busy' : '') },
+    about,
+    earlier.length ? h('p', { class: 'sub' }, `Already on the boards from an earlier read: ${earlier.join(', ')}. Drop any card here you already have.`) : null,
     s.error ? h('p', { class: 'plugerr' }, `Not every card reached its board: ${s.error}. Accept again to retry the rest.`) : null,
     busy ? h('p', { class: 'sub' }, 'Putting the cards on their boards...') : null,
     h('div', { class: 'recgrid' }, [...open, ...cards.filter(c => c.status !== 'open')].map(c => {
@@ -69,9 +80,11 @@ function cardOf(a, c) {
   const kind = h('select', { class: 'inp recsel', disabled: busy, title: 'Kind', onchange: e => set('kind', e.target.value) },
     Object.entries(KINDS).map(([k, label]) => h('option', { value: k, selected: k === c.kind }, label)));
   const names = ['Me', ...(st.projects || []).filter(p => p !== 'Me')];
-  if (!names.includes(c.project)) names.push(c.project);
-  const project = h('select', { class: 'inp recsel', disabled: busy || c.kind === 'reminder', title: c.kind === 'reminder' ? 'Reminders go on Me' : 'Which board it goes on',
-    onchange: e => set('project', e.target.value) }, names.map(p => h('option', { value: p, selected: p === c.project }, p)));
+  if (c.project && !names.includes(c.project)) names.push(c.project);
+  const project = h('select', { class: 'inp recsel' + (c.project ? '' : ' recnoproj'), disabled: busy || c.kind === 'reminder', title: c.kind === 'reminder' ? 'Reminders go on Me' : 'Which board it goes on',
+    onchange: e => set('project', e.target.value) },
+  c.project ? null : h('option', { value: '', selected: true, disabled: true }, 'Pick a project'),
+  names.map(p => h('option', { value: p, selected: p === c.project }, p)));
   const title = h('input', { class: 'inp rectitle', value: c.title, disabled: busy, 'aria-label': 'Title', oninput: e => later('title', e.target.value), onblur: flush });
   const due = c.kind !== 'reminder' ? null : h('label', { class: 'recdue' }, 'Due',
     h('input', { class: 'inp', type: 'datetime-local', disabled: busy, value: (c.due || '').replace(' ', 'T'),
@@ -87,7 +100,9 @@ function cardOf(a, c) {
   const accept = (cto) => { flush(); return a.accept([c.id], cto); };
   const acts = h('div', { class: 'plugrow' },
     h('button', { class: 'btn ghost', disabled: busy, onclick: () => { flush(); ui.invoke('drop', c.id); } }, 'Drop'),
-    c.project === 'Me'
+    !c.project
+      ? h('button', { class: 'btn primary', disabled: true, title: 'Pick a project first' }, 'Accept')
+      : c.project === 'Me'
       ? h('button', { class: 'btn primary', disabled: busy, onclick: () => accept(false) }, 'Accept')
       : ui.kit.splitButton({ main: { label: 'Accept', onClick: () => accept(false) }, second: { label: 'and send to CTO', onClick: () => accept(true) } }));
   if (busy) for (const b of acts.querySelectorAll('button')) b.disabled = true;

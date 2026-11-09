@@ -11,9 +11,11 @@ export const NEEDS = [
 ];
 
 // True when cmd would find name on this PATH: one of the PATHEXT extensions in any PATH folder.
-export function onPath(name, env = process.env) {
-  const exts = (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean);
-  const dirs = (env.PATH || env.Path || '').split(path.delimiter).map(d => d.replace(/^"|"$/g, '')).filter(Boolean);
+// On a Mac the name itself, with no extension (#2562).
+export function onPath(name, env = process.env, platform = process.platform) {
+  const win = platform === 'win32';
+  const exts = win ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  const dirs = (env.PATH || env.Path || '').split(win ? ';' : ':').map(d => d.replace(/^"|"$/g, '')).filter(Boolean);
   return dirs.some(d => exts.some(x => { try { return fs.statSync(path.join(d, name + x.toLowerCase())).isFile(); } catch { return false; } }));
 }
 

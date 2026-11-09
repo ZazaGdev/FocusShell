@@ -26,9 +26,21 @@
   stop.title = 'Stop recording (Ctrl+Alt+R)';
   stop.addEventListener('click', () => { stop.disabled = true; window.recwin.send('stop'); });
   const top = el('div', 'barrow');
-  top.append(grip, el('span', 'mic' + (init.mic === false ? ' off' : ''), init.mic === false ? 'Mic off' : 'Mic on'), stop);
+  // The mic (#1792): its icon lights while the mic hears the owner, stays dim in silence and is
+  // crossed out with the mic off or muted.
+  const MIC = ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M19 11a7 7 0 0 1-14 0', 'M12 18v3'];
+  const mic = el('span', 'mic');
+  const paintMic = state => {
+    const off = init.mic === false || state === 'muted';
+    mic.className = 'mic' + (off ? ' off' : state === 'live' ? ' live' : '');
+    mic.replaceChildren(icon(...MIC.concat(off ? ['M4 4l16 16'] : []).map(d => ['path', { d }])), init.mic === false ? 'Mic off' : state === 'muted' ? 'Mic muted' : 'Mic on');
+    mic.title = off ? 'No sound is being recorded' : state === 'live' ? 'The mic hears you' : 'The mic is on; it lights up when it hears you';
+  };
+  paintMic('quiet');
+  top.append(grip, mic, stop);
 
-  const key = init.penKey ? ` (${init.penKey.replace(/Control/, 'Ctrl')} turns drawing on and off)` : '';
+  const keyName = k => k.replace(/Control/, 'Ctrl');
+  const key = init.penKey ? ` (${keyName(init.penKey)} turns drawing on and off${init.holdCtrl ? ', or hold Ctrl on its own to draw' : ''})` : '';
   const TOOLS = [
     ['pen', 'Pen', `Draw freehand on the recording${key}`, null],
     ['rect', '', 'Rectangle: drag to draw one', icon(['rect', { x: 4, y: 6, width: 16, height: 12, rx: 1 }])],
@@ -46,13 +58,14 @@
     tools.append(b);
   }
   const clear = el('button', 'tbtn', 'Clear');
-  clear.title = 'Clear the drawing (or right-click on it)';
+  clear.title = `Clear the drawing (${init.clearKey ? `${keyName(init.clearKey)}, ` : ''}or right-click on it)`;
   clear.addEventListener('click', () => window.recwin.send('clear'));
   tools.append(clear);
   bar.append(top, tools);
 
   // The tool in use lights up while drawing is on.
   window.recwin.onState(s => {
+    if (s && 'voice' in s) { paintMic(s.voice); return; }
     if (!s || !('pen' in s)) return;
     for (const [id, b] of btns) b.classList.toggle('on', !!s.pen && (s.tool || 'pen') === id);
   });

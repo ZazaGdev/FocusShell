@@ -1,0 +1,5 @@
+{
+  "name": "focusshell",
+  "version": "1.0.0",
+  "description": "FocusShell's lead skills: set the effort level for the task in hand (#2681). Loaded only into lead panes, with --plugin-dir."
+}

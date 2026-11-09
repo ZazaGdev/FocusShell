@@ -1,20 +1,27 @@
 // Status (#383): a button beside Waiting and Missed above each CTO pane. It opens one row per
 // lead open in the app for that CTO: busy or idle, its current task, and where it stopped, the
-// line the CTO wrote with `deck status`, with when. Every interval picked in Settings (#1034), if
-// a lead started or finished work since the last ask or is busy, the CTO is asked to refresh
-// those lines; a busy CTO gets the ask queued.
+// line the CTO wrote with `deck status`, with when. Once the owner has pressed no key and clicked
+// nowhere in the app for the time picked in Settings (#1699), if a lead started or finished work
+// since the last ask or is busy, the CTO is asked to refresh those lines; a busy CTO gets the
+// ask queued.
 // Pane output alone does not count (#392): an idle lead's recap or redraw is not work.
 import { refreshDue, refreshLine, workStep, sortLeads, leadState, STATE_WORD } from '../lib/status.js';
 
 const asked = new Map(); // CTO id -> when it was last asked to refresh
 const work = new Map(); // lead id -> workStep state, sampled every two seconds
 let c = null, modal = null, cur = null, st = { leads: {} };
+let ownerAt = Date.now(); // the owner's last key or click anywhere in the app; opening it counts
+const active = () => { ownerAt = Date.now(); };
 
 // ctx: { h, icon, deck, mgrName(m), leadsOf(m) -> [{ id, name, busy, prompt (stopped on one), task: { n, text, mark } | null }],
 //        ctos() -> the CTO sessions running, lastOutput(id) ms, ask(m, line) types it into the pane,
-//        every() -> the refresh interval in ms }
+//        every() -> the owner's idle time in ms before an ask, owner(m) -> { ago: ms since the owner
+//        typed in the pane, draft: a draft or prompt is on it } }
 export function setupStatus(ctx) {
   c = ctx;
+  // Capture, so a pane or field that stops the event still counts as the owner being here.
+  addEventListener('keydown', active, true);
+  addEventListener('pointerdown', active, true);
   setInterval(sample, 2000);
   setInterval(tick, 60000);
 }
@@ -35,7 +42,9 @@ async function tick() {
     const leads = c.leadsOf(m);
     if (!leads.length) continue;
     const leadLast = Math.max(0, ...leads.map(l => (work.get(l.id) || {}).changedAt || 0));
-    if (!refreshDue({ now, askedAt: asked.get(m) || 0, leadLast, busy: leads.some(l => l.busy), every: c.every() })) continue;
+    const owner = await c.owner(m);
+    const ownerAgo = Math.min(now - ownerAt, owner.ago);
+    if (!refreshDue({ now, askedAt: asked.get(m) || 0, leadLast, busy: leads.some(l => l.busy), idle: c.every(), ownerAgo, draft: owner.draft })) continue;
     asked.set(m, now);
     await c.ask(m, refreshLine(leads.map(l => l.name)));
   }
