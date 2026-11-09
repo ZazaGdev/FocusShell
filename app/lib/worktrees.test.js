@@ -118,6 +118,9 @@ function makeRepo(root, { remote = false } = {}) {
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
   g(repo, 'init', '-q', '-b', 'main');
+  // No automatic housekeeping: newer git (2.56 on the Mac runner) prunes broken worktree records
+  // on its own after a commit, and these tests check what the sweep itself leaves (#2779).
+  g(repo, 'config', 'maintenance.auto', 'false'); g(repo, 'config', 'gc.auto', '0');
   // node_modules without the slash: on a Mac git counts a link as a file, so "node_modules/" would
   // leave a node_modules that is a link untracked, and the link rule would never be reached (#2779).
   put(path.join(repo, '.gitignore'), 'node_modules\nvendor/\n.worktrees/\n');
