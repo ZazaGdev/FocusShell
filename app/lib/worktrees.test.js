@@ -118,7 +118,9 @@ function makeRepo(root, { remote = false } = {}) {
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
   g(repo, 'init', '-q', '-b', 'main');
-  put(path.join(repo, '.gitignore'), 'node_modules/\nvendor/\n.worktrees/\n');
+  // node_modules without the slash: on a Mac git counts a link as a file, so "node_modules/" would
+  // leave a node_modules that is a link untracked, and the link rule would never be reached (#2779).
+  put(path.join(repo, '.gitignore'), 'node_modules\nvendor/\n.worktrees/\n');
   put(path.join(repo, 'a.txt'), 'a\n');
   g(repo, 'add', '.'); g(repo, 'commit', '-qm', 'start');
   if (remote) {
