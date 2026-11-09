@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('deck', {
   resize: (id, cols, rows) => ipcRenderer.send('session:resize', { id, cols, rows }),
   kill: (id) => ipcRenderer.invoke('session:kill', id),
   states: () => ipcRenderer.invoke('session:states'),
+  subagents: () => ipcRenderer.invoke('session:subagents'),
   readData: () => ipcRenderer.invoke('data:read'),
   projectList: () => ipcRenderer.invoke('projects:list'),
   // given: the folders to connect, honoured only in a smoke run (no dialog there)
@@ -128,6 +129,9 @@ contextBridge.exposeInMainWorld('deck', {
   onOpenExtraRequest: on('request:open-extra'),
   closedAnswer: (name, answer, n) => ipcRenderer.send('request:closed', { name, answer, n }),
   openedAnswer: (name, result, n) => ipcRenderer.send('request:opened', { name, n, ...result }),
+  onFileRequest: on('request:file'),
+  fileAnswer: (id, answer) => ipcRenderer.send('request:filed', { id, answer }),
+  smokeOpenFile: (file) => ipcRenderer.invoke('smoke:open-file', file),
   onNavProject: on('nav:project'),
   onWaiting: on('session:waiting'),
   // The owner's words (#228): approve and decline take a request's id, never text.

@@ -1,4 +1,5 @@
 import { MAC, MAC_PATH } from './platform.js';
+import { OWN_APP_FILES } from './owntools.js';
 
 // Clickable text in terminal output: Windows paths (either slash) and web links, and on a Mac
 // paths from the root or home folder (#2562).
@@ -49,7 +50,7 @@ export function findLinks(text) {
 }
 const CODE_RE = /open in vs ?code:\s*["']?$/i;
 
-// A path with spaces outside quotes (#1528): "D:\Claude" in "D:\Claude Setup\x\2026-10-22.md
+// A path with spaces outside quotes (#1528): "D:\Team" in "D:\Team Notes\x\2026-10-22.md
 // is ready" runs on to the first word ending in a file extension, as long as a word on the way
 // has a slash, so it reads as one path and the prose after it stays out. A folder path with
 // spaces still stops at its first space; panes and item text stretch it further on disk.
@@ -71,8 +72,8 @@ function spacedPath(s, index, raw) {
 }
 
 // Longer readings of a path that may continue past a space, shortest first, up to `max`
-// more words: "D:\Claude" in "D:\Claude Setup\x.json: done" gives "D:\Claude Setup\x.json"
-// and "D:\Claude Setup\x.json: done". The app keeps the longest one that exists on disk.
+// more words: "D:\Team" in "D:\Team Notes\x.json: done" gives "D:\Team Notes\x.json"
+// and "D:\Team Notes\x.json: done". The app keeps the longest one that exists on disk.
 export function stretchCandidates(text, link, max = 6) {
   if (link.quoted || /^https?:/i.test(link.text)) return [];
   const s = String(text), out = [];
@@ -134,8 +135,8 @@ export function joinReadings(link, cuts) {
   return [...crossedCuts(link, cuts).slice(1).map(c => trimLink(link.text.slice(0, c - link.index))), link.text];
 }
 
-// Claude Code also breaks a line where a space was, so "D:\Claude Setup\x.mp4" can arrive
-// as "D:\Claude" and "Setup\x.mp4" on two rows, joined without the space (#350). Every
+// Claude Code also breaks a line where a space was, so "D:\Team Notes\x.mp4" can arrive
+// as "D:\Team" and "Notes\x.mp4" on two rows, joined without the space (#350). Every
 // reading of a candidate with the space put back at some of the joins it crosses (at most
 // `max` of them): text is the candidate as it is on screen, target the path to look for.
 export function spacedReadings(candidate, link, cuts, max = 4) {
@@ -164,10 +165,11 @@ export function wrappedUrl(link, cuts, pos, cols, slack = 8, text = '') {
 }
 
 // Files the Code pane cannot usefully open (#166): a click shows them selected in Explorer.
-// A video editor's project file (.editbay, #317) belongs to its own app, so it goes there too, and so does
-// a web page (.html, #318), opened from Explorer in a browser.
-const BINARY_RE = /\.(editbay|html?|apk|aab|ipa|exe|msi|msix|appx|dll|so|dylib|bin|dmg|iso|img|zip|7z|rar|tar|gz|tgz|bz2|xz|jar|aar|class|png|jpe?g|gif|bmp|webp|ico|tiff?|heic|psd|mp4|mov|mkv|avi|webm|wmv|m4v|mp3|wav|flac|ogg|m4a|aac|pdf|docx?|xlsx?|pptx?|ttf|otf|woff2?|db|sqlite|keystore|jks|p12)$/i;
-export function opensInExplorer(file) { return BINARY_RE.test(String(file)); }
+// A file of a program of the owner's own (OWN_APP_FILES, #317) belongs to that program, so it goes
+// there too, and so does a web page (.html, #318), opened from Explorer in a browser.
+const BINARY_RE = /\.(html?|apk|aab|ipa|exe|msi|msix|appx|dll|so|dylib|bin|dmg|iso|img|zip|7z|rar|tar|gz|tgz|bz2|xz|jar|aar|class|png|jpe?g|gif|bmp|webp|ico|tiff?|heic|psd|mp4|mov|mkv|avi|webm|wmv|m4v|mp3|wav|flac|ogg|m4a|aac|pdf|docx?|xlsx?|pptx?|ttf|otf|woff2?|db|sqlite|keystore|jks|p12)$/i;
+const OWN_RE = OWN_APP_FILES.length ? new RegExp(`\\.(${OWN_APP_FILES.join('|')})$`, 'i') : null;
+export function opensInExplorer(file) { return BINARY_RE.test(String(file)) || !!(OWN_RE && OWN_RE.test(String(file))); }
 
 // A bare file name with an extension, such as "thumbnail-final.jpg", not part of a path or
 // web link. The app links it only when it names exactly one existing file nearby.

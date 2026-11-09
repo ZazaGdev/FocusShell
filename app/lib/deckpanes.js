@@ -12,8 +12,10 @@ export const PANE_USAGE = `  open-pane  <Project> [--lead 2-5] [--worktree] [--m
                                             opens a lead's tab in the running app
   close-pane <Project> [--lead 2-5] [--force]   closes a lead's tab (refused mid-task unless --force)
   ask-owner  <Project> '<exact words>' [--why '<the question>'] [--task <n>] [--lead 2-5] [--wait <seconds>]
-                                            a card asking the owner to approve words typed into a lead's pane`;
-export const PANE_VERBS = new Set(['open-pane', 'close-pane', 'ask-owner']);
+                                            a card asking the owner to approve words typed into a lead's pane
+  open-file  '<full path>'                  opens a file for the owner as a click on its path does (#2768):
+                                            in its project's Code pane beside the lead, nothing typed there`;
+export const PANE_VERBS = new Set(['open-pane', 'close-pane', 'ask-owner', 'open-file']);
 
 // argv after the verb: { pos: [...], opt: { lead, worktree, model, force, why, task, wait } }.
 export function paneArgs(argv) {
@@ -150,6 +152,27 @@ export async function runPane(verb, argv, { data, running = appRunning, tries = 
       lines.push(a !== null ? `Answer: ${a}` : `No answer yet after ${wait} seconds; the card stays until the owner clicks or a day passes.`);
     }
     return { out: lines.join('\n'), code: 0 };
+  }
+  if (verb === 'open-file') {
+    // The owner asked the CTO to open or show a file (#2768). The window opens it as a click on
+    // its path does: a text file in the Code pane of the project that holds it, beside that
+    // project's lead (opening its tab first), a folder or a binary file shown in File Explorer.
+    // Nothing is typed into any pane, and nothing is run.
+    const file = pos[0];
+    if (!file || pos.length > 1) throw new Error("open-file needs one full path, in single quotes: open-file '<full path>'");
+    if (!/^[a-zA-Z]:[\\/]|^\\\\|^\//.test(file)) return { out: `Refused: '${file}' is not a full path. Give the whole path, such as D:\\Projects\\App\\docs\\plan.md.`, code: 1 };
+    if (!fs.existsSync(file)) return { out: `Failed: there is no file or folder at ${file}.`, code: 1 };
+    if (!running(data)) return { out: `The FocusShell app is not running, so there is no Code pane to open it in. Give the owner the path instead: ${file}`, code: 1 };
+    fs.mkdirSync(req, { recursive: true });
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const tmp = path.join(req, `file-${id}.tmp`);
+    fs.writeFileSync(tmp, JSON.stringify({ file }));
+    fs.renameSync(tmp, path.join(req, `file-${id}.req`));
+    // Opening a project's tab first starts its lead, which takes a few seconds.
+    const t = tries || 150;
+    const a = await answer(path.join(req, `file-${id}.out`), t);
+    if (a === null) return { out: `Asked the FocusShell app to open ${file}, but it did not answer within ${t / 5} seconds. Give the owner the path instead.`, code: 1 };
+    return { out: a, code: a.startsWith('Failed') ? 1 : 0 };
   }
   throw new Error(`unknown verb "${verb}"`);
 }

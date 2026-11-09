@@ -29,16 +29,16 @@ Describe 'Get-DeckConfig' {
 }
 
 Describe 'Get-TrustedPaths and Test-ProjectTrusted' {
-  $json = '{"projects":{"g:/SideProjects/A":{"hasTrustDialogAccepted":true},"G:/SideProjects/A":{"x":1},"G:/SideProjects/B":{}}}'
+  $json = '{"projects":{"g:/Projects/A":{"hasTrustDialogAccepted":true},"G:/Projects/A":{"x":1},"G:/Projects/B":{}}}'
   It 'parses keys that differ only by case' {
     $t = Get-TrustedPaths $json
-    ($t -join ',') | Should Be 'g:/SideProjects/A'
+    ($t -join ',') | Should Be 'g:/Projects/A'
   }
   It 'matches backslash paths case-insensitively' {
     $t = Get-TrustedPaths $json
-    Test-ProjectTrusted -Path 'G:\SideProjects\A' -TrustedPaths $t | Should Be $true
-    Test-ProjectTrusted -Path 'G:\SideProjects\B' -TrustedPaths $t | Should Be $false
-    Test-ProjectTrusted -Path 'G:\SideProjects\C' -TrustedPaths $t | Should Be $false
+    Test-ProjectTrusted -Path 'G:\Projects\A' -TrustedPaths $t | Should Be $true
+    Test-ProjectTrusted -Path 'G:\Projects\B' -TrustedPaths $t | Should Be $false
+    Test-ProjectTrusted -Path 'G:\Projects\C' -TrustedPaths $t | Should Be $false
   }
   It 'reads the real ~/.claude.json' {
     (Get-ClaudeTrustedPaths).Count -gt 0 | Should Be $true

@@ -1,5 +1,6 @@
 // Requests from the CTO's scripts, dropped as files in state/requests: opening and closing
-// panes (open-pane.ps1, close-pane.ps1) and the owner's words (ask-owner.ps1). Kept out of main.js.
+// panes (open-pane.ps1, close-pane.ps1), the owner's words (ask-owner.ps1) and a file to open
+// (deck open-file, #2768). Kept out of main.js.
 import { Notification } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,8 @@ export function registerRequests(d) {
       for (const f of fs.readdirSync(P.requests)) {
         const w = f.match(/^words-([\w-]{1,64})\.req$/);
         if (w) { takeWords(w[1], path.join(P.requests, f)); continue; }
+        const of = f.match(/^file-([0-9a-f]{12})\.req$/);
+        if (of) { takeFile(of[1], path.join(P.requests, f)); continue; }
         const m = f.match(/^(open|close)([2-5]?)-(.+)\.req$/);
         if (!m) continue;
         const full = path.join(P.requests, f);
@@ -40,6 +43,33 @@ export function registerRequests(d) {
     handle();
     fs.watch(P.requests, () => setTimeout(handle, 100));
   }
+
+  // A file the owner asked the CTO to open (deck open-file, #2768): the window opens it as a
+  // click on its path does and answers in file-<id>.out.
+  // One left from before a restart is dropped, since the verb gave up after 30 seconds.
+  function takeFile(id, file) {
+    let age = 0;
+    try { age = Date.now() - fs.statSync(file).mtimeMs; } catch { return; }
+    const body = read(file);
+    try { fs.unlinkSync(file); } catch { return; }
+    if (age > 60000) { logRequest(`dropped file-${id}: older than a minute`); return; }
+    let target = '';
+    try { target = String(JSON.parse(body).file || ''); } catch { /* answered below */ }
+    if (!target || /[\r\n]/.test(target)) { logRequest(`refused file-${id}: no path`); fileOut(id, 'Failed: the request named no file.'); return; }
+    logRequest(`got file-${id}: ${target}`);
+    send('request:file', { id, file: target });
+  }
+  const fileOut = (id, text) => { try { fs.writeFileSync(path.join(P.requests, `file-${id}.out`), text); } catch { /* the verb gave up */ } };
+  ipcMain.on('request:filed', (_e, { id, answer }) => {
+    if (!/^[0-9a-f]{12}$/.test(String(id))) return;
+    logRequest(`answer file-${id}: ${answer}`);
+    fileOut(id, String(answer));
+  });
+  // The smoke run opens a file through deck open-file, as the CTO does.
+  ipcMain.handle('smoke:open-file', async (_e, file) => {
+    if (!SMOKE) return '';
+    return (await runPane('open-file', [String(file)], { data: path.dirname(P.requests), requests: P.requests, running: () => true, tries: 150 })).out;
+  });
 
   // The owner's words (#228): a request from ask-owner.ps1 waits here as a card. Only the
   // owner's click (words:approve, with the request's id) types its stored words into the

@@ -27,8 +27,8 @@ export function lookFor(key, picks = {}) {
 // The robot a guest is in the room (#246): the CTO and the PM their own, a group's CTO the miner,
 // each lead a project robot, helpers one of the two small ones. The names are the sprites in
 // tavern/art/sprites (robot-<name>.png).
-const PROJECT_ROBOTS = ['focus-shell', 'ai-fun', 'budget-expense-tracker', 'builder', 'claude-setup', 'compass', 'gym',
-  'personal', 'research', 'video-editor', 'web'];
+const PROJECT_ROBOTS = ['focus-shell', 'sparky', 'ledger', 'builder', 'tinkerer', 'compass', 'gym',
+  'personal', 'research', 'director', 'web'];
 // robots: { Project: robot } chosen elsewhere: the owner's own in Settings (tavernRobots,
 // where '*' is every other project's robot) or the Demo's (#305). A project it does not name
 // gets one picked from its name, so it keeps the same one (#358).
@@ -41,8 +41,16 @@ export function robotFor(role, id, project, robots = {}) {
 
 // The Demo's leads wear the project robots (#305), a new mix each time the Demo starts
 // (seed), no two alike while there are robots enough: { Project: robot }.
+// Each robot's place comes from its name's hash stirred with the seed (#2779): with the seed only
+// put in front of the name, robots whose names are as long as each other kept their order on
+// every start.
+const stir = (h, seed) => {
+  let x = (h ^ Math.imul((Number(seed) | 0) + 1, 0x9e3779b1)) >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x7feb352d); x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+  return (x ^ (x >>> 16)) >>> 0;
+};
 export function demoRobots(projects, seed) {
-  const pool = [...PROJECT_ROBOTS].sort((a, b) => hash(`${seed}:${a}`) - hash(`${seed}:${b}`) || a.localeCompare(b));
+  const pool = [...PROJECT_ROBOTS].sort((a, b) => stir(hash(a), seed) - stir(hash(b), seed) || a.localeCompare(b));
   return Object.fromEntries([...projects].sort().map((p, i) => [p, pool[i % pool.length]]));
 }
 

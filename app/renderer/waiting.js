@@ -4,7 +4,7 @@ import * as T from './terminal.js';
 import { h, toast } from './dom.js';
 import { managerFor, isMgr, PM } from '../lib/groups.js';
 import { projectOf, sessionName } from '../lib/sessions.js';
-import { alertStep, livePrompt, samePrompt, askedOwner } from '../lib/prompts.js';
+import { alertStep, livePrompt, samePrompt, askedOwner, backgroundWork, backgroundText } from '../lib/prompts.js';
 import { promptCard, wordsCard } from './prompt-card.js';
 import { typeLine } from './cto-line.js';
 
@@ -50,16 +50,29 @@ export function waitingWatch(c) {
   // A lead whose last report on its own screen is NEEDS YOU (#1756): it waits on the owner's
   // answer. Read every few seconds; the caller counts it only while the pane is quiet.
   const askedOn = new Map(); // lead session id -> its question
-  const readAt = new Map();  // lead session id -> its last output when its screen was read
+  // A lead whose turn ended while its background shells or subagents still run (#2706): its dot
+  // stays purple until they end. Shells from Claude Code's footer on the same screen, subagents
+  // from Claude Code's own files (deck.subagents).
+  const shellsOn = new Map(); // lead session id -> its background shells, such as "1 shell"
+  let subsOn = {};            // lead session id -> how many background subagents it runs
+  const backOn = new Map();   // lead session id -> what still runs, such as "1 shell and 1 subagent"
+  const setBack = id => { const b = backgroundText(shellsOn.get(id), subsOn[id]); if (b) backOn.set(id, b); else backOn.delete(id); };
+  const readAt = new Map();   // lead session id -> its last output when its screen was read
   function readAsked() {
     for (const id of started) {
-      if (isMgr(id) || id === PM || T.isExited(id)) { askedOn.delete(id); continue; }
+      if (isMgr(id) || id === PM || T.isExited(id)) { askedOn.delete(id); shellsOn.delete(id); backOn.delete(id); continue; }
       const at = c.outputAt(id);
       if (readAt.get(id) === at) continue; // nothing printed since: the same answer
       readAt.set(id, at);
-      T.screen(id).then(rows => { const q = askedOwner(rows || []); if (q) askedOn.set(id, q); else askedOn.delete(id); }, () => {});
+      T.screen(id).then(rows => {
+        const q = askedOwner(rows || []), b = backgroundWork(rows || []);
+        if (q) askedOn.set(id, q); else askedOn.delete(id);
+        if (b) shellsOn.set(id, b); else shellsOn.delete(id);
+        setBack(id);
+      }, () => {});
     }
-    for (const id of [...askedOn.keys(), ...readAt.keys()]) if (!started.has(id)) { askedOn.delete(id); readAt.delete(id); }
+    deck.subagents?.().then(m => { subsOn = m || {}; for (const id of new Set([...backOn.keys(), ...Object.keys(subsOn)])) if (started.has(id) && !T.isExited(id)) setBack(id); }, () => {});
+    for (const id of [...askedOn.keys(), ...shellsOn.keys(), ...backOn.keys(), ...readAt.keys()]) if (!started.has(id)) { askedOn.delete(id); shellsOn.delete(id); backOn.delete(id); readAt.delete(id); }
   }
   setInterval(() => { checkPromptAlerts(); readAsked(); for (const id of promptSeen.keys()) confirmPrompt(id); }, 5000);
   deck.onWaiting(({ id, what }) => {
@@ -101,5 +114,5 @@ export function waitingWatch(c) {
     typeLine(deck, m, line).then(r => toast(line.replace(/^WORDS /, '') + (r === 'held' ? ' (sent when your prompt is empty)' : '')));
   }
   const leadCard = w => (w.words ? wordsCard(h, w.words, deck, openTab, tellCto) : promptCard(h, w, deck, openTab, hide));
-  return { waitingOn, askedOn, waitingLeads, leadCard, checkPromptAlerts, setWords: list => { wordReqs = list || []; } };
+  return { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords: list => { wordReqs = list || []; } };
 }

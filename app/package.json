@@ -66,6 +66,8 @@
       "project-page.js",
       "code-web.js",
       "missed.js",
+      "background.js",
+      "worktree-sweep.js",
       "lead-status.js",
       "window-guard.js",
       "requests.js",
@@ -83,6 +85,7 @@
       "renderer/**",
       "code-ext/**",
       "plugins/**",
+      "lead-plugin/**",
       "build/copy-room.mjs",
       "build/icon.ico",
       "build/icon.png"

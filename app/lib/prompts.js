@@ -24,6 +24,24 @@ export function askedOwner(rows) {
   return last.line.split('|')[1]?.trim() || 'a question';
 }
 
+// Background shells a lead still runs after its turn ended (#2706), read from Claude Code's
+// footer under its input box ("⏵⏵ auto mode on · 2 shells · ← 1 agent", kept down to a 45
+// column pane): "2 shells", or null. Text above the input box, such as "done 3:07 AM · 1 shell
+// still running" left in the conversation, does not count; "← 1 agent" is not background work.
+export function backgroundWork(rows) {
+  const lines = rows.map(l => String(l).replace(/\s+$/, ''));
+  let edge = -1;
+  lines.forEach((l, i) => { if (RULE(l)) edge = i; });
+  if (edge < 0) return null;
+  const m = lines.slice(edge + 1).join(' · ').match(/(?:^|[\s·])(\d+) (shells?)\b/);
+  return m && +m[1] > 0 ? `${m[1]} ${m[2]}` : null;
+}
+// What the dot's tooltip names (#2706): shells from the footer, subagents from Claude's files.
+export function backgroundText(shells, subagents) {
+  const n = Number(subagents) || 0;
+  return [shells || '', n ? `${n} subagent${n > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ') || null;
+}
+
 // What the lead waits on, in a few words, or null.
 export function waitingFor(output) {
   const text = plainText(output).replace(/\s+/g, ' ');

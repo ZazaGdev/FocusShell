@@ -2,19 +2,21 @@
 // suggested one marked, the words a lead needs typed, tests and commits as badges, and the rest
 // folded under "details". Read from the lines leads and the CTO already write:
 // "NEEDS YOU #<n> | <question> | options: a, b | suggest: a (why) | words: ..." and
-// "DONE #<n> | <result>; <label>: <item>; ... | tests: pass | commit: <hash>".
+// "DONE #<n> | <result>; <label>: <item>; ... | effort: <level> | tests: pass | commit: <hash>".
 // No Node imports: the page uses this.
 
 // A report line's parts at " | ": its head (DONE #n), the known fields and the body.
+// effort (#2681): the level the lead ran the task at, shown as a badge like tests.
 export function reportParts(line) {
   const parts = String(line || '').split(/\s+\|\s+/);
   const head = /^(DONE|NEEDS YOU|BLOCKED)\b/.test(parts[0] || '') ? parts.shift() : '';
-  const out = { head, body: [], tests: '', commits: [], words: '' };
+  const out = { head, body: [], tests: '', commits: [], words: '', effort: '' };
   for (const p of parts) {
-    const m = p.match(/^(tests|commits?|words|unblock|options|suggest):\s*([\s\S]*)$/i);
+    const m = p.match(/^(tests|commits?|words|unblock|options|suggest|effort):\s*([\s\S]*)$/i);
     if (!m) { out.body.push(p); continue; }
     const k = m[1].toLowerCase(), v = m[2].trim();
     if (k === 'tests') out.tests = v;
+    else if (k === 'effort') out.effort = /^(low|medium|high|xhigh|max)$/i.test(v) ? v.toLowerCase() : '';
     else if (k.startsWith('commit')) out.commits = v && !/^none$/i.test(v) ? v.split(/,\s*/) : [];
     else if (k === 'words') out.words = v;
   }
@@ -60,11 +62,11 @@ const lastResult = task => {
 };
 
 // task: a parsed board task; ask: askOf(task) or null.
-// Returns { headline, title, options: [{ key, text, suggested }], why, words, tests, commits,
-//   groups: [{ label, items }], context }.
+// Returns { headline, title, options: [{ key, text, suggested }], why, words, tests, effort,
+//   commits, groups: [{ label, items }], context }.
 export function cardView(task, ask) {
   const last = lastResult(task), rep = reportParts(last);
-  const out = { headline: '', title: task.text, options: [], why: '', words: rep.words, tests: /^(none|)$/i.test(rep.tests) ? '' : rep.tests, commits: rep.commits, groups: [], context: '' };
+  const out = { headline: '', title: task.text, options: [], why: '', words: rep.words, tests: /^(none|)$/i.test(rep.tests) ? '' : rep.tests, effort: rep.effort, commits: rep.commits, groups: [], context: '' };
   // A question only when a report line starts with NEEDS YOU: a DONE that mentions
   // "NEEDS YOU" in passing is a report, not a question.
   const lines = [task.result, ...(task.details || []).map(d => d.replace(/^Result:\s*/i, ''))];

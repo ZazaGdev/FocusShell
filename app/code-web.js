@@ -316,7 +316,7 @@ export function registerCodeWeb(d) {
     try { return f && fs.statSync(f).isFile() ? f : null; } catch { return null; }
   });
   // The project a file belongs to (the deepest folder that holds it), or null. A path through
-  // a link (G:\SideProjects is a link to D:\SideProjects) is matched by real path too.
+  // a link (a G: folder that is a link to one on D:) is matched by real path too.
   ipcMain.handle('project:forFile', (_e, file) => {
     const f = isAbsPath(String(file || '')) ? onDisk(String(file)) : null;
     const real = p => { try { return fs.realpathSync.native(p); } catch { return p; } };

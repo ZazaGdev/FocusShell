@@ -3,13 +3,13 @@
 // an option, typing, or the mic. The mic uses Windows voice typing, like a card's box, and
 // waits for Send (#414). Answers go to the CTO as "ANSWER <Project> #<n>: ...", the same as
 // from an opened card.
-import { whiteboardCards, cardCount, cardQuestion, scrollAnchor } from '../lib/whiteboard.js';
+import { whiteboardCards, cardCount, cardQuestion, answeredCard, scrollAnchor, ageLabel } from '../lib/whiteboard.js';
 import { cardLinks } from '../lib/links.js';
 import { linkChips, linkedText } from './textlinks.js';
 import { voiceInto, voiceDone } from './voice.js';
 import { cardView } from '../lib/cardview.js';
 import { summaryKey, summaryInput, readMarkdown } from '../lib/cardsummary.js';
-import { parseTasks } from '../lib/tasks.js';
+import { parseTasks, waitingOf } from '../lib/tasks.js';
 import { pasteShots, withShots } from './pasteshots.js';
 import { VOICE_NAME } from '../lib/platform.js';
 
@@ -41,8 +41,7 @@ export function tldrFold(h, line, kids) {
 }
 
 let modal = null, cur = null; // cur: the ctx the whiteboard was opened with
-const sent = new Map();       // "<Project>#<n>" -> { q, text }: what was sent to which question, for this run of the app
-let undo = null;              // the card just removed (#1168): { key, project, n, timer }
+let undo = null;             // the card just removed (#1168): { key, project, n, timer }
 const built = new Map();      // "<Project>#<n>" -> { sig, el }: a card kept as it is while it has not changed (#1734)
 
 export const whiteboardOpen = () => !!modal;
@@ -146,17 +145,11 @@ function restore() {
   draw();
 }
 
-const ageOf = date => {
-  if (!date) return '';
-  const days = Math.floor((Date.now() - new Date(date + 'T00:00:00')) / 864e5);
-  return days <= 0 ? 'today' : days === 1 ? '1 day' : `${days} days`;
-};
-
 // A card that has not changed since the last draw is the same element, with what was typed in it;
 // a changed one is built again and keeps the typed text.
 function cardOnce(project, c) {
   const key = `${project}#${c.task.n}`, old = built.get(key);
-  const sig = JSON.stringify([c.task, c.ask, sums.get(summaryKey(project, c.task)) || '', sent.get(key) || null]);
+  const sig = JSON.stringify([c.task, c.ask, sums.get(summaryKey(project, c.task)) || '']);
   if (old && old.sig === sig) return old.el;
   const el = card(project, c), typed = old && old.el.querySelector('textarea')?.value, box = el.querySelector('textarea');
   if (typed && box && !box.value) box.value = typed;
@@ -168,7 +161,7 @@ function cardOnce(project, c) {
 function card(project, { task: t, ask }) {
   const { h, icon, deck } = cur, key = `${project}#${t.n}`;
   const el = h('article', { class: 'wbcard', 'data-key': key }), add = (...kids) => el.append(...kids.filter(Boolean));
-  const head = h('div', { class: 'wbmeta' }, h('span', { class: 'wbid' }, `#${t.n}`), h('span', { class: 'wbage' }, ageOf(t.date)),
+  const head = h('div', { class: 'wbmeta' }, h('span', { class: 'wbid' }, `#${t.n}`), h('span', { class: 'wbage', title: waitingOf(t) ? 'When it started waiting on you' : 'When it was added' }, ageLabel(waitingOf(t) || t.date)),
     h('a', { href: '#', class: 'wbopen', title: 'Open the full card', onclick: e => { e.preventDefault(); const o = cur.open; closeWhiteboard(); o(project, t); } }, 'Open'),
     h('button', { class: 'wbdrop', title: 'Remove from Waiting (it stays on its board)', 'aria-label': `Remove ${project} #${t.n} from Waiting`, onclick: () => remove(project, t.n, q) }, icon('x')));
   // Web links and paths in the card's text open on a click (#1045).
@@ -177,11 +170,6 @@ function card(project, { task: t, ask }) {
   const q = cardQuestion(t, ask), question = q === t.text ? null : linked('p', 'wbq', q);
   // The links and files the question is about (#416), under it.
   const links = linkChips(cardLinks(t), lopts);
-  if (sent.has(key) && sent.get(key).q === q) {
-    el.classList.add('sent');
-    add(head, linked('div', 'wbtitle', t.text), question, h('div', { class: 'wbsent' }, `Sent: ${sent.get(key).text}`, h('small', {}, 'Waiting for the CTO')));
-    return el;
-  }
 
   const hint = h('div', { class: 'wblisten' });
   const stopListen = () => { if (el.classList.contains('listen')) voiceDone(); el.classList.remove('listen'); hint.replaceChildren(); };
@@ -193,8 +181,9 @@ function card(project, { task: t, ask }) {
     if (!s || !cur || !cur.talk(project, t.n, s)) return;
     shots.clear();
     deck.addProjectNote(project, `#${t.n} You: ${s}`);
-    sent.set(key, { q, text: s });
-    el.replaceWith(cardOnce(project, { task: t, ask }));
+    // Answered, it leaves Waiting (#2610); the toast says it went to the CTO.
+    cur.setHidden(answeredCard(cur.data().hidden, project, t, ask));
+    draw();
   };
   const box = h('textarea', { class: 'tdsay', rows: 2, placeholder: 'Answer…', onkeydown: e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); say(box.value); }
@@ -217,7 +206,8 @@ function card(project, { task: t, ask }) {
     label, sugd ? h('small', {}, '★ suggested') : null);
   const opts = v.options.length ? h('div', { class: 'wcopts' }, v.options.map(o => chip(o.key ? `${o.key}) ${o.text}` : o.text, o.key ? `${o.key}: ${o.text}` : o.text, o.suggested)))
     : v.suggestion ? h('div', { class: 'wcopts' }, chip(`Go with: ${v.suggestion}`, `go with the suggestion: ${v.suggestion}`, true)) : null;
-  const proof = [v.tests ? h('span', { class: 'wcbadge' + (/^pass/i.test(v.tests) ? ' pass' : /^fail/i.test(v.tests) ? ' fail' : '') }, `tests ${v.tests}`) : null,
+  const proof = [v.effort ? h('span', { class: 'wcbadge', title: 'The effort level the lead ran this task at' }, `effort ${v.effort}`) : null,
+    v.tests ? h('span', { class: 'wcbadge' + (/^pass/i.test(v.tests) ? ' pass' : /^fail/i.test(v.tests) ? ' fail' : '') }, `tests ${v.tests}`) : null,
     ...v.commits.map(c => h('span', { class: 'wcbadge', title: 'Commit' }, c))].filter(Boolean);
   const detail = [md ? linked('p', 'wcsub', v.headline) : null, v.context ? linked('p', 'wcsub', v.context) : null,
     ...v.groups.map(g => h('div', { class: 'wcgroup' }, g.label ? h('b', {}, g.label) : null, h('ul', {}, g.items.map(i => linked('li', '', i)))))].filter(Boolean);

@@ -2,9 +2,10 @@
 // style (#376), and the mic if it is on, transcribes it with the local Whisper copy, turns what
 // was said into cards with screenshots, and puts the accepted ones on the boards (and, if asked,
 // tells the main CTO).
-// On a Mac (#2562) Editbay keeps its Whisper copy in Application Support, and the programs
-// have no .exe.
-const MAC = typeof process !== 'undefined' && process && process.platform ? process.platform === 'darwin' : typeof navigator !== 'undefined' && /^Mac/i.test(navigator.platform || '');
+// The Whisper folder starts where a known program keeps its Whisper copy (WHISPER_HOME, in
+// Application Support on a Mac, #2562), and on a Mac the programs have no .exe.
+import { WHISPER_HOME } from '../../lib/owntools.js';
+const MAC =typeof process !== 'undefined' && process && process.platform ? process.platform === 'darwin' : typeof navigator !== 'undefined' && /^Mac/i.test(navigator.platform || '');
 export default {
   id: 'recorder',
   name: 'Screen recorder',
@@ -19,7 +20,7 @@ export default {
   settings: [
     // listed: Settings shows a dropdown of what the main side's `choices` found (#407); pick adds
     // "Choose..." for another folder or file.
-    { key: 'whisperDir', label: 'Whisper folder', help: `Holds ${MAC ? 'whisper-cli' : 'whisper-cli.exe'} (in a subfolder is fine) and the model files`, type: 'path', default: MAC ? '~/Library/Application Support/editbay/speech' : '%APPDATA%\\editbay\\speech', listed: true, pick: 'folder' },
+    { key: 'whisperDir', label: 'Whisper folder', help: `Holds ${MAC ? 'whisper-cli' : 'whisper-cli.exe'} (in a subfolder is fine) and the model files`, type: 'path', default: MAC ? WHISPER_HOME.mac : WHISPER_HOME.win, listed: true, pick: 'folder' },
     { key: 'model', label: 'Whisper model', help: 'A model file found in the Whisper folder', type: 'text', default: 'ggml-medium.en-q5_0.bin', listed: true },
     { key: 'ffmpeg', label: 'ffmpeg', help: MAC ? 'ffmpeg on the PATH (Homebrew), or an ffmpeg program' : 'ffmpeg on the PATH, or an ffmpeg.exe', type: 'path', default: 'ffmpeg', listed: true, pick: 'file' },
     // #1030: old recordings go, video, sound, transcript and all; board items keep their screenshots.

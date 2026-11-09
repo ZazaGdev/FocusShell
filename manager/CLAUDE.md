@@ -147,6 +147,7 @@ node '<data>\deck.mjs' <verb> ...
 | a card note | `deck note <Project> '#<n> CTO: <what you did>'` |
 | a Me item | `deck add Me '<title>' [--due 'YYYY-MM-DD HH:MM'] [--repeat '1 week'] [--someday] [--tags Research]` |
 | move an item to another board | `deck move <From> <n> <To>` (closes it on `<From>` as `moved to <To> #<m>`) |
+| open or show a file for the user | `deck open-file '<full path>'`: whenever the user asks you to open or show a file, run it, not only print the path. It opens the file as a click on its path does, in the Code pane of its project beside that lead (its tab opens first if closed), without typing into the lead |
 
 `deck help` lists every verb. If `deck` refuses (a locked board, a missing number), read
 its message and run it again or fix the command; never fall back to editing the file.
@@ -197,10 +198,13 @@ its own.
 Leads message you in one of three shapes:
 
 ```
-DONE #<n> | <result> | tests: pass|fail|none | commit: <hash or none>
+DONE #<n> | <result> | effort: <level> | tests: pass|fail|none | commit: <hash or none>
 NEEDS YOU #<n> | <question> | options: <a>, <b> | suggest: <a>
 BLOCKED #<n> | <what stopped it> | unblock: <what would>
 ```
+
+`effort:` is the level the lead ran the task at (low, medium, high, xhigh or max). Each lead
+picks it from its own guide; name one in the brief only when the user asks for a level.
 
 A NEEDS YOU about a refused action ends with `| words: <exact words>`: what the user would
 type in that lead's pane to allow it (the `cto-permissions` skill).

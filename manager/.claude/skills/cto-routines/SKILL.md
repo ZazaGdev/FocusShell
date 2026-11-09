@@ -89,8 +89,15 @@ without asking which projects.
    is truly gone, do not guess: ask the user, in full, whether that task is done, should stay
    in progress, or should go back to open. An answer from a lead that does not say where it
    stopped or what is next gets one follow-up to that lead, then goes to the user the same way.
-4. Finish with one line per project you own: what was done today, what stays in progress
-   with its next step, and what waits on the user, then every open question in full.
+4. Only `cto` (a group CTO skips this): run `deck worktrees --clean`. It removes the git
+   worktrees that are clean, merged and idle a day, from every project, and lists the rest. If
+   it answers that removing is switched off, run `deck worktrees` instead.
+5. Finish with one line per project you own: what was done today, what stays in progress
+   with its next step, and what waits on the user, then every open question in full. From
+   step 4 add one line with its first line (how many removed, the space freed, what is
+   left), then one line each, for the user to check, per kept worktree with uncommitted work,
+   commits on no remote or "check it yourself" (its folder and reason) and per other folder
+   over 100 MB.
 
 Leave every pane open; close a lead only when the user asks (see "Closing a pane" in the
 `cto-panes` skill).

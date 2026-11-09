@@ -18,15 +18,16 @@ import os from 'node:os';
 import { expandEnv, exeName } from '../plugins/recorder/lib/transcript.js';
 import { choicesFor } from '../plugins/recorder/lib/choices.js';
 
-test('a Mac finds whisper-cli in Editbay\'s app or on the PATH when the Whisper folder holds only models', async () => {
+test('a Mac finds whisper-cli in a known app or on the PATH when the Whisper folder holds only models', async () => {
   const { whisperCli } = await import('../plugins/recorder/process.js');
   const models = fs.mkdtempSync(path.join(os.tmpdir(), 'models-'));
   fs.writeFileSync(path.join(models, 'ggml-tiny.en.bin'), '');
-  const editbay = '/Applications/Editbay.app/Contents/Resources/whisper/whisper-cli';
-  assert.equal(whisperCli(models, { mac: true, exists: p => p === editbay, envPath: '', editbay }), editbay);
-  assert.equal(whisperCli(models, { mac: true, exists: p => p === '/opt/homebrew/bin/whisper-cli', envPath: '/usr/bin:/opt/homebrew/bin', editbay }), '/opt/homebrew/bin/whisper-cli');
-  assert.equal(whisperCli(models, { mac: true, exists: () => false, envPath: '/usr/bin', editbay }), null);
-  assert.equal(whisperCli(models, { mac: false, exists: () => true, envPath: '/usr/bin', editbay }), null, 'Windows looks in the Whisper folder only, as before');
+  const inApp = '/Applications/Cutter.app/Contents/Resources/whisper/whisper-cli', apps = [inApp];
+  assert.equal(whisperCli(models, { mac: true, exists: p => p === inApp, envPath: '', apps }), inApp);
+  assert.equal(whisperCli(models, { mac: true, exists: p => p === '/opt/homebrew/bin/whisper-cli', envPath: '/usr/bin:/opt/homebrew/bin', apps }), '/opt/homebrew/bin/whisper-cli');
+  assert.equal(whisperCli(models, { mac: true, exists: () => false, envPath: '/usr/bin', apps }), null);
+  assert.equal(whisperCli(models, { mac: true, exists: p => p === inApp, envPath: '', apps: [] }), null, 'no known app: the PATH only');
+  assert.equal(whisperCli(models, { mac: false, exists: () => true, envPath: '/usr/bin', apps }), null, 'Windows looks in the Whisper folder only, as before');
   fs.rmSync(models, { recursive: true, force: true });
 });
 
@@ -39,7 +40,7 @@ test('a Mac says where to allow the microphone when it is refused', async () => 
 });
 
 test('the recorder finds whisper-cli and ffmpeg without .exe on a Mac, under ~/', () => {
-  assert.equal(expandEnv('~/Library/Application Support/editbay/speech', { HOME: '/Users/a' }), '/Users/a/Library/Application Support/editbay/speech');
+  assert.equal(expandEnv('~/Library/Application Support/Whisper/speech', { HOME: '/Users/a' }), '/Users/a/Library/Application Support/Whisper/speech');
   assert.equal(expandEnv('~/x', { HOME: 'C:\\Users\\a' }), '~/x', 'a Windows HOME (Git Bash) leaves it as written');
   assert.equal(exeName('whisper-cli', false), 'whisper-cli');
   assert.equal(exeName('ffmpeg', true), 'ffmpeg.exe');
@@ -130,7 +131,7 @@ test('a Mac pane links paths from the root or home folder, never slash commands 
   try {
     useMacLinks(true);
     const t = s => findLinks(s).map(l => l.text);
-    assert.deepEqual(t('Report: /Users/a/Claude Setup/x/report.md is ready'), ['/Users/a/Claude Setup/x/report.md']);
+    assert.deepEqual(t('Report: /Users/a/Team Notes/x/report.md is ready'), ['/Users/a/Team Notes/x/report.md']);
     assert.deepEqual(t('saved to ~/Desktop/shot.png.'), ['~/Desktop/shot.png']);
     assert.deepEqual(t('"/Users/a b/c.md"'), ['/Users/a b/c.md']);
     assert.deepEqual(t('run /compact and/or /model now'), []);

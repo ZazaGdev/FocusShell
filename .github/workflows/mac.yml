@@ -10,15 +10,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to stamp on the build
-        default: 2.1.0
+        description: Version to stamp on the build (empty for app/package.json's)
+        required: false
 
 jobs:
   mac:
     runs-on: macos-15
     timeout-minutes: 90
     env:
-      VERSION: ${{ inputs.version || '2.1.0' }}
+      # A push builds the version in app/package.json; a manual run may stamp another one.
+      VERSION: ${{ inputs.version }}
     defaults:
       run:
         working-directory: app
@@ -98,7 +99,9 @@ jobs:
 
       - name: Build
         run: |
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          V="${VERSION:-$(node -p "require('./package.json').version")}"
+          echo "Building FocusShell $V"
+          npm version "$V" --no-git-tag-version --allow-same-version
           npm run dist:mac
 
       - name: Check the bundle

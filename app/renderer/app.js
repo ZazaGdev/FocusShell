@@ -34,7 +34,7 @@ import { showMissing } from './requirements.js';
 import { setupMissed, refreshMissed, closeMissed } from './missed.js';
 import { ctoRequests } from './cto-requests.js';
 import { setupStatus } from './status.js';
-import { leadTask, leadDot } from '../lib/status.js';
+import { leadTask, leadDot, outputStep, printing } from '../lib/status.js';
 import { setupFocusLog, focusLog } from './focuslog.js';
 import { miniTree } from './layout-ui.js';
 import { typeLine, deliver, drafting } from './cto-line.js';
@@ -68,18 +68,21 @@ let smokeHold = {};            // boards a smoke run keeps in memory (#315, #319
 let smokePick;                 // the folder a smoke run connects from the empty Board, with no dialog (#1061)
 const collapsed = new Set();  // project panes folded down to their title bar in a split
 const lastOutput = new Map(); // id -> ms
+const outputRuns = new Map(); // id -> { runStart, last }, its current stretch of output (#2706)
 const showLead = new Map();   // project -> which of its leads (2 to 5) its pane shows; none: the first
 const leadWt = new Map();     // extra lead session id -> whether it has its own worktree
 let leadSplits = {};          // project -> lead numbers its pane shows side by side when it is alone on screen (#1554)
 
 const proj = n => projects.find(p => p.name === n);
 const tasksOf = n => parseTasks(tasksMd[n] || '');
-const isActive = id => Date.now() - (lastOutput.get(id) || 0) < 3000;
+// Working: printing steadily, as Claude's spinner does for a whole turn; a recap or redraw on
+// an idle pane is a short burst and leaves it idle (#2706).
+const isActive = id => printing(outputRuns.get(id), Date.now());
 const curMgr = () => mgrId(ctx);
 const mgrName = id => id === MAIN ? 'CTO' : `${groupOfMgr(id)} CTO`;
 
 // A lead's dot says what its own pane is doing, never what its board holds (#1756).
-const dotOf = id => leadDot({ exited: T.isExited(id), prompt: waitingOn.get(id), asked: askedOn.get(id), active: isActive(id) });
+const dotOf = id => leadDot({ exited: T.isExited(id), prompt: waitingOn.get(id), asked: askedOn.get(id), active: isActive(id), back: backOn.get(id) });
 function stateOf(id) {
   if (isMgr(id) || id === PM) return T.isExited(id) ? 'ended' : isActive(id) ? 'working' : 'idle';
   return dotOf(id).state;
@@ -91,14 +94,15 @@ function labelOf(id) {
   if (id === PM) return 'talk here';
   if (waitingOn.has(id)) return 'Waiting on your approval';
   if (askedOn.has(id) && !isActive(id)) return 'Waiting on your answer';
-  if (extraOf(id)) return isActive(id) ? 'Busy' : 'Idle';
+  const busy = isActive(id) || backOn.has(id); // as its dot says (#2706)
+  if (extraOf(id)) return busy ? 'Busy' : 'Idle';
   const ts = tasksOf(id);
   const pick = m => ts.find(t => t.mark === m);
   const b = pick('!'), w = pick('~');
   if (b) return `Blocked on #${b.n}`;
   if (w) return `Working on #${w.n}`;
   if (!started.has(id)) return 'No session';
-  return isActive(id) ? 'Busy' : 'Idle';
+  return busy ? 'Busy' : 'Idle';
 }
 const dot = id => h('span', { class: 'st-dot ' + stateOf(id) + (isActive(id) ? ' active' : ''), 'data-dot': id, title: tipOf(id) });
 
@@ -194,7 +198,7 @@ const S = { deck, started, collapsed,
 const groupActs = groupActions(S);
 const { openGroup, catchUpOn, onScreen, newGroup, saveOpen, renameGroupTo, joinGroup, leaveGroup, removeGroup } = groupActs;
 
-deck.onData(({ id, data }) => { lastOutput.set(id, Date.now()); T.write(id, data); });
+deck.onData(({ id, data }) => { const now = Date.now(); lastOutput.set(id, now); outputRuns.set(id, outputStep(outputRuns.get(id), now)); T.write(id, data); });
 // Claude exiting leaves its shell open to type in (#353); a claude typed there brings the pane back.
 deck.onExit(({ id, shell }) => { T.markExited(id, true, !!shell); render(); });
 // A session that has not joined messaging a minute after opening (#1113): the CTO cannot
@@ -213,7 +217,7 @@ deck.onDataChanged(async d => {
   const c = openCard(), fresh = c && tasksOf(c.project).find(t => t.n === c.n);
   if (fresh) refreshTask(fresh);
 });
-const { waitingOn, askedOn, waitingLeads, leadCard, checkPromptAlerts, setWords } = waitingWatch({
+const { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords } = waitingWatch({
   deck, started, groups: () => groups, hasProjects: () => projects.length > 0, mgrName, openTab, updateLive, showPrompts,
   outputAt: id => lastOutput.get(id) || 0,
 });
@@ -221,7 +225,7 @@ function showPrompts() { redrawPage(); refreshWhiteboard(); wbCounts(); }
 deck.onNavProject(name => { if (proj(name)) openProjectPage(name); });
 deck.onNavMe(() => { revealMe(); view = 'me'; render(); });
 const { openRequest, openExtraRequest, closeRequest } = ctoRequests({
-  deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, openTab, openExtra, closeTab, closeExtra, render,
+  deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, openTab, openExtra, closeTab, closeExtra, render, openFile: (...a) => openFile(...a),
   get projects() { return projects; }, set projects(v) { projects = v; }, get openTabs() { return openTabs; }, get groups() { return groups; }, get groupViews() { return groupViews; },
   get view() { return view; }, set view(v) { view = v; }, get single() { return single; }, get ctx() { return ctx; }, set ctx(v) { ctx = v; },
   get splitSet() { return splitSet; }, set splitSet(v) { splitSet = v; }, set layoutId(v) { layoutId = v; }, get openError() { return openError; }, set openError(v) { openError = v; },
@@ -339,6 +343,7 @@ function renderMePage() {
 // pane, it opens beside that lead with the lead's folder (a second lead's worktree) as the
 // workspace; otherwise beside the project that holds it. A file in no project (#292) opens
 // beside the project whose item linked it, else the project last on screen, else the first open one.
+// Answers the project whose Code pane shows it, or whether File Explorer showed it.
 async function openFile(id, file, from) {
   const lead = id && !isMgr(id) && id !== PM ? projectOf(id) : null;
   const name = (lead && proj(lead) ? lead : null) || (await deck.projectForFile(file)) || (from && from !== ME && proj(from) ? from : null)
@@ -348,7 +353,7 @@ async function openFile(id, file, from) {
   if (!openTabs.includes(name)) await openTab(name, false);
   if (!openTabs.includes(name)) return deck.openPath(file);
   view = 'single'; single = name; C.openCode(name, deck, render, file, lead === name ? id : null); render();
-  return true;
+  return name;
 }
 const openMd = file => openFile(null, file);
 // An opened card talks to its project's CTO: "ANSWER <Project> #<n>: ..." for a card that

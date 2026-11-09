@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseStatus, setStatus, refreshDue, refreshLine, workStep, IDLE_MS,sortLeads, leadState, leadTask, leadDot } from './status.js';
+import { parseStatus, setStatus, refreshDue, refreshLine, workStep, IDLE_MS,sortLeads, leadState, leadTask, leadDot, outputStep, printing, GAP_MS, HOLD_MS } from './status.js';
 
 test('leadDot: orange only while the lead waits on the owner, from its own pane (#1756)', () => {
   assert.deepEqual(leadDot({ prompt: 'Do you want to proceed?' }), { state: 'needs', tip: 'Waits on you: Do you want to proceed?' });
@@ -13,6 +13,43 @@ test('leadDot: orange only while the lead waits on the owner, from its own pane 
   assert.deepEqual(leadDot({}), { state: 'idle', tip: 'Idle' }, 'nothing waits: hollow, whatever its board holds');
   assert.deepEqual(leadDot({ active: true }), { state: 'working', tip: 'Working' });
   assert.equal(leadDot({ exited: true, prompt: 'x' }).state, 'ended');
+});
+
+test('leadDot: purple while a lead\'s background shell or subagent still runs, orange still wins (#2706)', () => {
+  assert.deepEqual(leadDot({ back: '1 shell' }), { state: 'working', tip: 'Working in the background: 1 shell' }, 'turn ended, smoke run still going');
+  assert.deepEqual(leadDot({ back: '1 shell', active: true }), { state: 'working', tip: 'Working' });
+  assert.equal(leadDot({ back: '1 shell', asked: 'Which colours?' }).state, 'needs', 'a NEEDS YOU while a shell runs');
+  assert.equal(leadDot({ back: '1 shell', prompt: 'Do you want to proceed?' }).state, 'needs', 'a permission prompt while a shell runs');
+  assert.equal(leadDot({ back: null }).state, 'idle', 'everything ended: hollow');
+  assert.equal(leadDot({ back: '1 shell', exited: true }).state, 'ended');
+});
+
+import { runningSubagents } from './history.js';
+test('runningSubagents: a background subagent runs until Claude Code marks its meta file finished (#2706)', () => {
+  const bg = { agentType: 'general-purpose', requestShape: 'background' };
+  assert.equal(runningSubagents([bg]), 1, 'started, not finished yet');
+  assert.equal(runningSubagents([{ ...bg, finished: true }, bg, bg]), 2);
+  assert.equal(runningSubagents([{ requestShape: 'foreground' }]), 0, 'a foreground subagent keeps the turn itself running');
+  assert.equal(runningSubagents([null, { ...bg, finished: true }]), 0);
+  assert.equal(runningSubagents(undefined), 0);
+});
+
+// Output at these times (ms), one step per chunk; the state after the last.
+const fed = times => times.reduce((o, t) => outputStep(o, t), null);
+test('printing: a turn\'s steady spinner lights the dot, an idle pane\'s burst never does (#2706)', () => {
+  const spinner = Array.from({ length: 40 }, (_, i) => 10000 + i * 120); // 4.8 s of frames
+  assert.equal(printing(fed(spinner.slice(0, 5)), 10500), false, 'half a second in: not yet');
+  assert.equal(printing(fed(spinner), 14700), true, 'printing steadily for over RUN_MS: working');
+  assert.equal(printing(fed(spinner), 14680 + HOLD_MS - 1), true, 'a short pause keeps it lit');
+  assert.equal(printing(fed(spinner), 14680 + HOLD_MS), false, 'quiet for HOLD_MS: idle');
+  // The recap Claude Code prints minutes after a turn, or a redraw after a resize: one burst.
+  const recap = [200000, 200010, 200150, 200400];
+  assert.equal(printing(fed([...spinner, ...recap]), 200500), false, 'a burst long after the turn does not light it');
+  assert.equal(printing(fed(recap), 200500), false);
+  // Bursts further apart than GAP_MS never join up into a run.
+  const ticks = Array.from({ length: 10 }, (_, i) => 300000 + i * (GAP_MS + 1));
+  assert.equal(printing(fed(ticks), ticks.at(-1) + 10), false, 'a status line ticking now and then stays idle');
+  assert.equal(printing(null, 1000), false, 'no output yet');
 });
 
 test('status: rows A to Z with a lead and its second together, and a state per lead (#413)', () => {

@@ -57,7 +57,8 @@ indented two spaces and starting with `> `:
   > Done: 2026-10-03 14:20
 ```
 
-The date on the task line is when it was added; `> Done:` is when it was closed (marked `x`).
+The date on the task line is when it was added; `> Done:` is when it was closed (marked `x`),
+and `> Waiting:` when it was marked `?`. `deck mark` writes and removes both; never write them by hand.
 A `> Tags: Research, ...` line (comma separated) tags a task; keep it when you edit the task.
 An item for the user to read a research result belongs on their own board (`tasks/Me.md`),
 tagged Research, not on a project as a `for owner` line.

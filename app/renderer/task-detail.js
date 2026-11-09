@@ -87,7 +87,7 @@ function draw(ctx, extra) {
   // Done beside the title (#168), where it is seen; a done item offers Reopen there.
   const doneBtn = t.mark === 'x' ? h('button', { class: 'btn tddone', onclick: () => setMark(' ') }, 'Reopen')
     : h('button', { class: 'btn primary tddone', title: 'Mark this item done', onclick: () => setMark('x') }, 'Done');
-  const details = t.details.filter(d => !(project === 'Me' ? /^(Version|Priority|Sketch|Screenshot|Due|Repeat|Done|Tags):/i : /^(Version|Priority|Sketch|Screenshot|Done|Tags):/i).test(d));
+  const details = t.details.filter(d => !(project === 'Me' ? /^(Version|Priority|Sketch|Screenshot|Due|Repeat|Done|Waiting|Tags):/i : /^(Version|Priority|Sketch|Screenshot|Done|Waiting|Tags):/i).test(d));
   const shots = screenshotsOf(t);
 
   // Answer first: the question and its options, then a box for anything else.

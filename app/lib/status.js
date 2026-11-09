@@ -43,13 +43,31 @@ export function refreshDue({ now, askedAt = 0, leadLast = 0, busy = false, idle 
 
 // A lead's dot (#1756), from its own pane only, never from its project's board: one plain
 // meaning per colour, said in its tooltip. prompt: what it is stopped on in its pane; asked:
-// its unanswered NEEDS YOU question; active: it is printing now.
-export function leadDot({ exited = false, prompt = null, asked = null, active = false }) {
+// its unanswered NEEDS YOU question; active: its turn is running (printing steadily); back: what
+// it still runs in the background after its turn ended, such as "1 shell" (#2706), which keeps
+// it purple until that ends too. Waiting on the owner wins over both.
+export function leadDot({ exited = false, prompt = null, asked = null, active = false, back = null }) {
   if (exited) return { state: 'ended', tip: 'Session ended' };
   if (prompt) return { state: 'needs', tip: `Waits on you: ${prompt}` };
   if (asked && !active) return { state: 'needs', tip: `Waits on your answer: ${asked}` };
-  return active ? { state: 'working', tip: 'Working' } : { state: 'idle', tip: 'Idle' };
+  if (active) return { state: 'working', tip: 'Working' };
+  return back ? { state: 'working', tip: `Working in the background: ${back}` } : { state: 'idle', tip: 'Idle' };
 }
+
+// Whether a pane is working now, for its dot (#2706). Claude's spinner redraws many times a
+// second for the whole of a turn, while an idle pane prints in short bursts: the recap Claude
+// Code writes a few minutes after a turn ends, a redraw after a resize, a status line update.
+// Any output used to light the dot, so a quiet lead lit up purple. Now a pane counts as working
+// only once it has printed with no gap over GAP_MS for RUN_MS, and until HOLD_MS after its last
+// output. o is { runStart, last }; outputStep is called on each chunk of output.
+export const RUN_MS = 2500, GAP_MS = 3000, HOLD_MS = 3000;
+export function outputStep(o, now) {
+  const s = { runStart: 0, last: 0, ...o };
+  if (!s.last || now - s.last > GAP_MS) s.runStart = now;
+  s.last = now;
+  return s;
+}
+export const printing = (o, now) => !!o && !!o.last && now - o.last < HOLD_MS && o.last - o.runStart >= RUN_MS;
 
 // A lead is working only once its pane has printed without a break for WORK_MS (#392): Claude's
 // spinner does that, while an idle pane's recap, redraw or status bar is a short burst. One

@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import { parseWhisper, transcriptMd, expandEnv, ffmpegAudioArgs, ffmpegRemuxArgs, whisperArgs, exeName } from './lib/transcript.js';
 import { namedProjects, extractPrompt, extractText, parseCards, shotName, ffmpegShotArgs, frameTimes, frameName } from './lib/extract.js';
 import { videoFile, size } from './store.js';
+import { MAC_WHISPER_APPS } from '../../lib/owntools.js';
 
 const LIMIT_MS = 60 * 60000; // one step may take an hour on a long recording, then it is stopped
 
@@ -41,13 +42,13 @@ export function findWhisperCli(dir, depth = 0) {
   return null;
 }
 
-// On a Mac (#2562) Editbay ships whisper-cli inside its app and keeps only the models in its
-// speech folder, and Homebrew puts it on the PATH: after the Whisper folder, those are tried.
-export const EDITBAY_WHISPER = '/Applications/Editbay.app/Contents/Resources/whisper/whisper-cli';
-export function whisperCli(dir, { mac = process.platform === 'darwin', exists = fs.existsSync, envPath = process.env.PATH || '', editbay = EDITBAY_WHISPER } = {}) {
+// On a Mac (#2562) a program that ships whisper-cli inside its app may keep only the models in
+// the Whisper folder (MAC_WHISPER_APPS), and Homebrew puts it on the PATH: after the Whisper
+// folder, those are tried.
+export function whisperCli(dir, { mac = process.platform === 'darwin', exists = fs.existsSync, envPath = process.env.PATH || '', apps = MAC_WHISPER_APPS } = {}) {
   const own = findWhisperCli(dir);
   if (own || !mac) return own;
-  if (exists(editbay)) return editbay;
+  for (const a of apps) if (exists(a)) return a;
   for (const d of envPath.split(':')) if (d && exists(`${d.replace(/\/+$/, '')}/whisper-cli`)) return `${d.replace(/\/+$/, '')}/whisper-cli`;
   return null;
 }

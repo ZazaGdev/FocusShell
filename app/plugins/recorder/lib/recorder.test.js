@@ -130,7 +130,7 @@ test('recorder: folderName from a local date', () => {
 });
 
 test('recorder: expandEnv', () => {
-  assert.equal(expandEnv('%APPDATA%\\editbay\\speech', { APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }), 'C:\\Users\\a\\AppData\\Roaming\\editbay\\speech');
+  assert.equal(expandEnv('%APPDATA%\\Whisper\\speech', { APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }), 'C:\\Users\\a\\AppData\\Roaming\\Whisper\\speech');
   assert.equal(expandEnv('%NOPE%\\x', {}), '%NOPE%\\x');
   assert.equal(expandEnv('%appdata%', { APPDATA: 'R' }), 'R');
 });

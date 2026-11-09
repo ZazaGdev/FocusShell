@@ -21,6 +21,7 @@ import { navForSmoke } from './nav.js';
 import { recorderSmoke } from '../plugins/recorder/smoke.js';
 import { showMissing } from './requirements.js';
 import { MOD_PROP, MAC } from '../lib/platform.js';
+import { OWN_APP_FILES } from '../lib/owntools.js';
 import { shLine } from '../lib/smokeshell.js';
 
 // The fake sessions are cmd on Windows and sh on a Mac (#2562): the lines this run types in cmd's
@@ -110,6 +111,30 @@ export async function smoke(app) {
     else console.error(`smoke: quick </> clicks on three projects, only ${ok} show VS Code`);
     for (const n of three) C.closeCode(n);
     render(); await wait(500);
+  }
+  // A lead's tab dot turns purple only for steady output, as a turn's spinner prints (#2706):
+  // one burst, like the recap Claude Code writes on an idle pane, leaves it hollow.
+  if (!MAC) {
+    const lead = picks[0], dotIs = () => (document.querySelector(`#tabs [data-dot="${lead}"]`)?.className || '').replace('st-dot ', '');
+    await wait(3500);
+    deck.write(lead, 'echo  recap: an idle pane printing once\r'); await wait(1200);
+    const burst = dotIs();
+    deck.write(lead, 'ping -n 7 127.0.0.1\r'); await wait(4500);
+    const steady = dotIs();
+    await wait(6500);
+    const after = dotIs();
+    const ok = !burst.includes('working') && steady.includes('working') && !after.includes('working');
+    console[ok ? 'log' : 'error'](`smoke: tab dot after one burst "${burst}", while printing steadily "${steady}", once quiet "${after}"`);
+    // Its turn over but a background shell still running, as Claude Code's footer under the input
+    // box says: purple until the footer drops it.
+    const rule = '-'.repeat(40), tip = () => document.querySelector(`#tabs [data-dot="${lead}"]`)?.dataset.tip || '';
+    deck.write(lead, `cls & echo  done 3:07 AM - 1 shell still running & echo ${rule} & echo ^> & echo ${rule} & echo   auto mode on - 1 shell - 1 agent\r`); await wait(7500);
+    const shell = dotIs(), shellTip = tip();
+    deck.write(lead, `cls & echo  done 3:07 AM - 1 shell still running & echo ${rule} & echo ^> & echo ${rule} & echo   auto mode on - 1 agent\r`); await wait(7500);
+    const ended = dotIs();
+    const bgOk = shell.includes('working') && /background: 1 shell/.test(shellTip) && !ended.includes('working');
+    console[bgOk ? 'log' : 'error'](`smoke: tab dot with a background shell in the footer "${shell}" (${shellTip}), once it ended "${ended}"`);
+    deck.write(lead, 'cls\r'); await wait(800);
   }
   // A lead sitting on a permission prompt (#119): marked as waiting, and its CTO is told.
   deck.write(picks[1], 'echo  Bash command: npm run build  Do you want to proceed?  1. Yes  2. No\r'); await wait(5000);
@@ -1155,8 +1180,10 @@ export async function smoke(app) {
     } else console.error('smoke: no second file to open in the Code pane');
     C.closeCode(picks[0]); break;
   }
-  // Any file clicked in a lead's pane opens in its built-in Code pane (#126), here a .js file.
-  const js = 'D:\\SideProjects\\FocusShell\\app\\main.js';
+  // Any file clicked in a lead's pane opens in its built-in Code pane (#126), here a .js file:
+  // this app's own main.js, in the project that is this app's folder.
+  const home = (proj('FocusShell') || {}).path || '';
+  const js = `${home}\\app\\main.js`;
   if (await app.openFile(picks[0], js)) {
     for (let i = 0; i < 90 && !document.querySelector('#codelayer .codeview'); i++) await wait(500);
     const src = (document.querySelector('#codelayer .codeview') || {}).src || '';
@@ -1184,17 +1211,32 @@ export async function smoke(app) {
     if (menu) await deck.smokeShot('link-menu');
     dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); p.remove();
   }
+  // The CTO opens a file the owner asked for with deck open-file (#2768): from the CTO's pane,
+  // it opens in the Code pane of the project that holds it, beside that project's lead.
+  {
+    let file = null;
+    for (const x of [`${base}\\README.md`, `${base}\\CLAUDE.md`]) if (!file && await deck.fileAt(x)) file = x;
+    app.view = 'single'; app.single = MAIN; render(); await wait(300);
+    const said = file ? await deck.smokeOpenFile(file) : 'no file';
+    const name = file ? file.split('\\').pop() : '?';
+    let src = '';
+    for (let i = 0; i < 90 && !(src = decodeURIComponent(decodeURIComponent((document.querySelector('#codelayer .codeview') || {}).src || ''))).includes(name); i++) await wait(500);
+    const ok = said.startsWith(`Opened ${file} in the Code pane of ${picks[0]}`) && app.view === 'single' && app.single === picks[0] && C.isOpen(picks[0]) && src.includes(name);
+    console[ok ? 'log' : 'error'](`smoke: deck open-file opened ${name} beside lead-${picks[0]}: ${ok} (answer "${said}", view ${app.view} ${app.single}, src ${src.slice(0, 120)})`);
+    C.closeCode(picks[0]);
+  }
   // A binary file clicked in the CTO's pane is shown in Explorer, not the Code pane, with no
-  // error toast (#166); a path through the G: link to D: still finds its project. A video
-  // editor's project file goes the same way (#317), and a web page (#318).
+  // error toast (#166); a path through a G: link to this app's D: folder still finds its project.
+  // A file of a program of the owner's own goes the same way (#317), and a web page (#318).
   app.view = 'single'; app.single = MAIN; render(); await wait(1000);
-  for (const bin of ['G:\\SideProjects\\FocusShell\\app\\build\\icon.png', 'G:\\SideProjects\\FocusShell\\state\\smoke\\intro-rough-2.editbay', 'G:\\SideProjects\\FocusShell\\tavern\\demos\\room\\index.html']) {
+  const viaLink = home.replace(/^[A-Za-z]:/, 'G:');
+  for (const bin of [`${viaLink}\\app\\build\\icon.png`, `${viaLink}\\state\\smoke\\intro-rough-2.${OWN_APP_FILES[0] || 'psd'}`, `${viaLink}\\tavern\\demos\\room\\index.html`]) {
     const { row } = T.cursorRow(MAIN);
     T.write(MAIN, `\r\n  Built: ${bin}\r\n`); await wait(500);
     const link = (await T.linksOnRow(MAIN, row + 1)).find(l => l.text === bin);
     if (link) { link.activate(); await wait(1500); }
     const errs = [...document.querySelectorAll('#toasts .toast.err')].map(t => t.textContent);
-    const viaG = await deck.projectForFile('G:\\SideProjects\\FocusShell\\CLAUDE.md');
+    const viaG = await deck.projectForFile(`${viaLink}\\CLAUDE.md`);
     const ok = link && !errs.length && !document.querySelector('#codelayer .codeview[style*="visible"]') && viaG === 'FocusShell';
     console[ok ? 'log' : 'error'](`smoke: a clicked ${bin.slice(bin.lastIndexOf('.'))} ${link ? 'link' : 'NO LINK'}, error toasts ${JSON.stringify(errs)}, G: path project ${viaG}`);
   }
@@ -1228,21 +1270,36 @@ export async function smoke(app) {
   await deck.smokeShot('cto');
   // Sample questions for the whiteboard, in memory only.
   const keep = { ...app.tasksMd }, loose = app.projects.map(p => p.name).filter(n => !groupOf(app.groups, n) && n !== ME).slice(0, 2);
+  // #2703: #901 started waiting today, #902 three days ago; #903 was asked before the time was kept.
+  const p2 = x => String(x).padStart(2, '0'), ymd = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const nowD = new Date(), ago3 = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate() - 3);
+  const waitToday = `${ymd(nowD)} ${p2(nowD.getHours())}:${p2(nowD.getMinutes())}`, waitOld = `${ymd(ago3)} 09:10`;
   loose.forEach((n, i) => { app.tasksMd[n] = `${app.tasksMd[n] || '# x'}
 - [?] #901 Pick the export format (2026-10-0${i + 1}, lead-${n}) -> needs you
   > Result: NEEDS YOU #901 | Which format for the export? | options: MP4, WebM, both | suggest: MP4
   > Review: http://100.101.102.103:8731/tmp/export/review.mp4 and http://localhost:8731/tmp/export/review.mp4
+  > Waiting: ${waitToday}
 - [?] #902 Login screen layout (2026-09-2${i}, lead-${n}) -> needs you
   > Result: NEEDS YOU: a) one column, b) two columns with the logo left; suggest a
+  > Waiting: ${waitOld}
 - [?] #903 Build the release APK (2026-10-04, lead-${n}) -> waiting on a prompt
   > Result: NEEDS YOU #903 | lead-${n} is stopped on a prompt in its own pane: Do you want to proceed?. Answer it in that pane.
 - [?] #904 Simpler presets (2026-10-05, lead-${n}) -> pick a flow
-  > NEEDS YOU: which simpler way to create a group? Demo http://127.0.0.1:5391/groups.html (today 5 steps) | options: A Save what is open, B New group card, C both | suggest: C`; });
+  > NEEDS YOU: which simpler way to create a group? Demo http://127.0.0.1:5391/groups.html (today 5 steps) | options: A Save what is open, B New group card, C both | suggest: C
+- [?] #905 Fix the login check (2026-10-06, lead-${n}) -> fixed, check it
+  > Result: DONE #905 | fixed the login check | effort: max | tests: pass | commit: abc1234`; });
   wantSummaries(deck, app.tasksMd, [ME]); await wait(600);
   wbCounts(); document.querySelector('.wbbtn').click(); await wait(800);
   // A lead's prompt the CTO put on the list (#146) shows as a card with its question.
   const wbText = document.querySelector('.wbox')?.textContent || '';
   console[wbText.includes('is stopped on a prompt in its own pane') ? 'log' : 'error']('smoke: Waiting on you shows the lead stopped on a prompt');
+  // #2703: the time a card started waiting, beside its number; one asked before that keeps its age alone.
+  {
+    const ageOfCard = n => [...document.querySelectorAll('.wbox .wbcard')].find(x => x.querySelector('.wbid')?.textContent === `#${n}`)?.querySelector('.wbage')?.textContent || '';
+    const [a1, a2, a3] = [901, 902, 903].map(ageOfCard);
+    const ok = a1 === `today ${waitToday.slice(11)}` && a2 === '3 days, 09:10' && /^\d+ days$/.test(a3);
+    console[ok ? 'log' : 'error'](`smoke: waiting times on the cards: #901 "${a1}", #902 "${a2}", #903 "${a3}"`);
+  }
   // #416: a question card shows the link it is about, once, as the PC address.
   {
     const c901 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#901/.test(x.querySelector('.wbid')?.textContent || ''));
@@ -1263,6 +1320,11 @@ export async function smoke(app) {
     const c904 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#904/.test(x.querySelector('.wbid')?.textContent || ''));
     const inText = c904 ? [...c904.querySelectorAll('.wchead a.tlink, .wcdetails a.tlink')].map(a => a.textContent) : [];
     console[inText.includes('http://127.0.0.1:5391/groups.html') ? 'log' : 'error'](`smoke: Waiting on you question text links ${JSON.stringify(inText)}`);
+    // #2681: a DONE line's effort part shows as a badge beside tests, not inside the result.
+    const c905 = [...document.querySelectorAll('.wbox .wbcard')].find(x => /#905/.test(x.querySelector('.wbid')?.textContent || ''));
+    const badges = c905 ? [...c905.querySelectorAll('.wcbadge')].map(b => b.textContent) : [];
+    const leaked = /effort: max/.test(c905?.querySelector('.wcdetails')?.textContent || '');
+    console[badges.includes('effort max') && badges.includes('tests pass') && !leaked ? 'log' : 'error'](`smoke: report card badges ${JSON.stringify(badges)}, effort left in the details ${leaked}`);
   }
   // #414: dictating into a card, then a pause, sends nothing; the words wait in the box for Send.
   {
@@ -1328,7 +1390,18 @@ export async function smoke(app) {
     const thumbs = c904 ? c904.querySelectorAll('.ashot img').length : 0;
     if (box) box.value = 'like this';
     await deck.smokeShot('waiting-paste');
-    [...(c904 ? c904.querySelectorAll('.tdtalk .btn.primary') : [])].pop()?.click(); await wait(3500);
+    const ids = () => [...document.querySelectorAll('.wbox .wbcard .wbid')].map(x => x.textContent).filter(x => x === '#904').length;
+    const before = ids(), count0 = +document.querySelector('.wbbtn b').textContent;
+    [...(c904 ? c904.querySelectorAll('.tdtalk .btn.primary') : [])].pop()?.click();
+    // #2610: the answered card leaves Waiting at once, not left on it faded, and stays off when
+    // Waiting opens again, though its item is still marked as waiting on the owner. Read before
+    // the boards reload from disk, which drops these in-memory sample cards.
+    for (let i = 0; i < 100 && c904?.isConnected; i++) await wait(20);
+    const left = ids(), count1 = +document.querySelector('.wbbtn b').textContent;
+    closeWhiteboard(); document.querySelector('.wbbtn').click();
+    const reopened = ids(), faded = document.querySelectorAll('.wbox .wbcard.sent').length;
+    await wait(3500);
+    console[before >= 1 && left === before - 1 && count1 === count0 - 1 && reopened === left && !faded ? 'log' : 'error'](`smoke: an answered card leaves Waiting: #904 cards ${before} -> ${left} (count ${count0} -> ${count1}), after reopening ${reopened}, faded cards ${faded}`);
     // The ANSWER line as typed into the CTO pane, its wrapped rows joined (spaces dropped, as a
     // wrap can fall on one).
     const typed = (await T.screen(MAIN)).join('').replace(/\s+/g, '');
@@ -1541,14 +1614,17 @@ export async function smoke(app) {
     deck.write(who, 'cls & echo  Bash command & echo    git push --force & echo  Do you want to proceed? & echo  ^> 1. Yes & echo    2. No, and tell Claude what to do differently (esc)\r');
     // The click comes once the pane shows the new prompt, while the card still shows the old one:
     // clicked before the pane drew it, the card rightly matched the screen and answered (#1888).
-    for (let i = 0; i < 25 && !(await T.screen(who)).some(r => /git push --force/.test(r) && !/echo/.test(r)); i++) await wait(100);
+    const waitFrom = Date.now();
+    let paneShowed = false;
+    for (let i = 0; i < 25 && !(paneShowed = (await T.screen(who)).some(r => /git push --force/.test(r) && !/echo/.test(r))); i++) await wait(100);
     const shown = document.querySelector(`${sel} .pdetail`)?.textContent || '';
+    const atClick = { waitedMs: Date.now() - waitFrom, paneShowed, card: !!document.querySelector(`${sel} .popts button`), shown: shown.replace(/\s+/g, ' ').trim().slice(0, 60) };
     document.querySelector(`${sel} .popts button`)?.click(); await wait(800);
     const refusedClick = /npm run build/.test(shown) && !!document.querySelector(`${sel} .pchanged`);
     for (let i = 0; i < 20 && !/git push --force/.test(document.querySelector(`${sel} .pdetail`)?.textContent || ''); i++) await wait(500);
     const redrawn = /git push --force/.test(document.querySelector(`${sel} .pdetail`)?.textContent || '');
-    if (!refusedClick || !redrawn) deck.smokeFail(`prompt card: a changed prompt with the same wording, click refused ${refusedClick}, card redrawn ${redrawn}; before the second prompt ${JSON.stringify(seenThen)}; now cards ${JSON.stringify([...document.querySelectorAll('.pcard')].map(c => c.dataset.session))}, screen ${JSON.stringify((await T.screen(who)).filter(r => r.trim()).slice(-7))}`);
-    console.log(`smoke: a changed prompt with the same wording refused the click ${refusedClick} and redrew the card ${redrawn}`);
+    if (!refusedClick || !redrawn) deck.smokeFail(`prompt card: a changed prompt with the same wording, click refused ${refusedClick}, card redrawn ${redrawn}; before the second prompt ${JSON.stringify(seenThen)}; at the click ${JSON.stringify(atClick)}; now cards ${JSON.stringify([...document.querySelectorAll('.pcard')].map(c => c.dataset.session))}, screen ${JSON.stringify((await T.screen(who)).filter(r => r.trim()).slice(-7))}`);
+    console.log(`smoke: a changed prompt with the same wording refused the click ${refusedClick} and redrew the card ${redrawn} (card after ${seenThen.cardAfter}, at the click ${JSON.stringify(atClick)})`);
     // #1278: the card's X takes it off Waiting with Undo and types nothing; the lead's next
     // prompt shows again.
     const before = (await T.screen(who)).join('\n');

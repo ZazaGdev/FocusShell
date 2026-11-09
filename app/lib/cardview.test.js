@@ -52,6 +52,17 @@ test('cardview: a DONE that mentions NEEDS YOU in passing is a report, led by it
   assert.deepEqual(v.groups.map(g => g.label), ['', 'applied', 'proposals']);
 });
 
+test('cardview: a DONE line\'s effort part is its own field, not part of the result (#2681)', () => {
+  const r = reportParts('DONE #7 | fixed the login check | effort: High | tests: pass | commit: abc1234');
+  assert.equal(r.effort, 'high');
+  assert.deepEqual(r.body, ['fixed the login check']);
+  assert.equal(reportParts('DONE #7 | x | effort: lots | tests: pass').effort, '');
+  assert.equal(reportParts('DONE #7 | x | tests: pass').effort, '');
+  const t = one(`- [?] #7 Login check (2026-11-08, lead-C) -> fixed
+  > Result: DONE #7 | fixed the login check | effort: max | tests: pass | commit: abc1234`);
+  assert.equal(cardView(t, askOf(t)).effort, 'max');
+});
+
 test('cardsummary: the key changes only with the card text, and the input leaves out bookkeeping lines', () => {
   const t = one('- [?] #4 A (2026-10-22, lead-A) -> x\n  > Result: NEEDS YOU #4 | which? | options: a, b\n  > Done: 2026-10-22 10:00');
   assert.equal(summaryKey('P', t), summaryKey('P', one('- [?] #4 A (2026-10-22, lead-A) -> x\n  > Result: NEEDS YOU #4 | which? | options: a, b')));
@@ -61,7 +72,7 @@ test('cardsummary: the key changes only with the card text, and the input leaves
 
 test('cardsummary: codes the model let through are taken out', () => {
   assert.equal(scrub('The kit has it (commit b27326a) and the template too (#141).'), 'The kit has it and the template too.');
-  assert.equal(scrub('Next step on task 1388 is run 6 for lead-VideoEditor in D:\\x\\y.md'), 'Next step is run 6 for the lead in a file');
+  assert.equal(scrub('Next step on task 1388 is run 6 for lead-Brewlog in D:\\x\\y.md'), 'Next step is run 6 for the lead in a file');
   assert.equal(scrub('a \u2014 b'), 'a , b'.replace(' ,', ','));
 });
 
@@ -69,6 +80,8 @@ test('cardsummary: the reply is read, an error or empty one is not used', () => 
   assert.equal(parseSummary(JSON.stringify({ result: '**Do it.**' })), '**Do it.**');
   assert.equal(parseSummary(JSON.stringify({ result: 'x', is_error: true })), null);
   assert.equal(parseSummary('not json'), null);
+  assert.equal(parseSummary(JSON.stringify({ result: '' })), null);
+  assert.equal(parseSummary(JSON.stringify({ result: '(#12)' })), null);
 });
 
 test('cardsummary: the small Markdown reads bold, bullets and paragraphs', () => {

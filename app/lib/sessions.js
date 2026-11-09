@@ -8,8 +8,11 @@ export const CLAUDE = 'claude';
 
 const resumed = (args, resumeId) => (resumeId && /^[0-9a-f-]{36}$/i.test(resumeId) ? [...args, '--resume', resumeId] : args);
 
-export function leadArgs(name, promptFile, resumeId) {
-  return resumed(['/c', CLAUDE, '-n', `lead-${name}`, '--remote-control', `lead-${name}`, '--permission-mode', 'auto', '--append-system-prompt-file', promptFile], resumeId);
+// pluginDir: the app's lead-plugin folder (#2681), whose effort-<level> skills let a lead set
+// the effort for the task in hand. Only leads load it; left out when not given.
+export function leadArgs(name, promptFile, resumeId, pluginDir) {
+  const args = ['/c', CLAUDE, '-n', `lead-${name}`, '--remote-control', `lead-${name}`, '--permission-mode', 'auto', '--append-system-prompt-file', promptFile];
+  return resumed(pluginDir ? [...args, '--plugin-dir', pluginDir] : args, resumeId);
 }
 
 // The main CTO is `cto`; a group's CTO is `cto-<Group>` with its group rules appended.

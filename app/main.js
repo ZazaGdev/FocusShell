@@ -39,6 +39,9 @@ import { updatesOn } from './lib/update.js';
 import { registerProjectPage } from './project-page.js';
 import { registerCodeWeb } from './code-web.js';
 import { registerMissed, noteTyping } from './missed.js';
+import { registerBackground } from './background.js';
+import { registerWorktreeSweep } from './worktree-sweep.js';
+import { leadWorktreeRisk } from './lib/worktrees.js';
 import { registerStatus } from './lead-status.js';
 import { registerRequests } from './requests.js';
 import { registerGlobalTalk } from './global-talk.js';
@@ -48,6 +51,7 @@ import { pluginServices } from './plugin-services.js';
 import { update } from './lib/boardio.js';
 import { activeHelpers } from './lib/tavern/helpers.js';
 import { sessionBoard, periodBoard, periodStart } from './lib/tavern/tokens.js';
+import { OWN_APP_FILES } from './lib/owntools.js';
 import { tasksDone } from './lib/tavern/tally.js';
 import { fiveHour } from './lib/tavern/usage.js';
 import { keepPid, releasePid } from './lib/pidfile.js';
@@ -350,7 +354,9 @@ function sessionSpec(id, resumeId, opts = {}) {
   const lead = extra ? `${name}-${extra.n}` : name;
   const promptFile = path.join(P.prompts, `lead-${lead}.md`);
   fs.writeFileSync(promptFile, prompt);
-  return { cwd: worktree || proj.path, args: leadArgs(lead, promptFile, extra ? null : resumeId), worktree: worktree && { proj, n: extra.n } };
+  // The effort-<level> skills (#2681), only when the folder is there, so a missing copy never stops a lead.
+  const plugin = path.join(APP_DIR, 'lead-plugin');
+  return { cwd: worktree || proj.path, args: leadArgs(lead, promptFile, extra ? null : resumeId, fs.existsSync(plugin) ? plugin : null), worktree: worktree && { proj, n: extra.n } };
 }
 
 // The pane's model from Settings (#142), read at each start so a change applies next start.
@@ -386,7 +392,9 @@ function classicView(id, args) {
 // project's current branch, or reused while it is still there.
 const worktreeDir = (proj, n) => path.join(P.worktrees, `${proj.name}-${n}`);
 function gitSync(cwd, args) {
-  try { return execFileSync('git', ['-C', cwd, ...args], { windowsHide: true, timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }).toString(); }
+  // Long paths on: without them git on Windows neither sees nor deletes a file whose path is
+  // over 260 characters (#2726), which left extra leads' worktrees half removed.
+  try { return execFileSync('git', ['-c', 'core.longpaths=true', '-C', cwd, ...args], { windowsHide: true, timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }).toString(); }
   catch (e) { throw new Error(String(e.stderr || e.message).trim().split('\n').pop()); }
 }
 function addWorktree(proj, n) {
@@ -400,16 +408,15 @@ function addWorktree(proj, n) {
   catch (e) { throw new Error(`Could not make the worktree for ${proj.name}: ${e.message}`); }
   return dir;
 }
-// Once an extra lead has ended: remove its worktree and branch when the branch is merged
-// into the project's current branch and nothing is left uncommitted. Says what it did.
+// Once an extra lead has ended: remove its worktree and branch when the branch and the
+// worktree's HEAD are merged into the project's current branch, nothing is left uncommitted,
+// and nothing in it would be harmed (a link out of it, a repository inside, #2726). Says what
+// it did.
 async function removeWorktree({ proj, n }) {
   const dir = worktreeDir(proj, n), branch = `lead-${n}`;
   if (!fs.existsSync(dir)) return '';
-  try {
-    if (gitSync(dir, ['status', '--porcelain']).trim()) return `Worktree kept: ${dir} has uncommitted changes.`;
-    try { gitSync(proj.path, ['merge-base', '--is-ancestor', branch, 'HEAD']); }
-    catch { return `Worktree kept: branch ${branch} has commits not merged into ${proj.name}'s current branch.`; }
-  } catch (e) { return `Worktree kept: ${e.message}`; }
+  const why = await leadWorktreeRisk({ dir, projPath: proj.path, project: proj.name, branch });
+  if (why) return `Worktree kept: ${why}.`;
   // Windows holds the folder for a moment after the session's processes end.
   for (let i = 0; ; i++) {
     try { gitSync(proj.path, ['worktree', 'remove', dir]); gitSync(proj.path, ['branch', '-d', branch]); return `Worktree and branch ${branch} removed.`; }
@@ -628,7 +635,7 @@ ipcMain.handle('tavern:tokens', () => sessionBoard(claudeProjects(),
     [...sessions].filter(([, s]) => claudeOn(s)).map(([id, s]) => ({ id, name: paneName(id), kind: id === 'pm' ? 'PM' : id.startsWith('cto') ? 'CTO' : 'lead', cwd: s.cwd, startedAt: s.startedAt }))));
 // The chalkboard's other tabs (#285): tokens today or this week by agent, the demo's own logs in
 // Demo mode (#314); tasks marked done on the boards. Its Commits tab asks commits:today (commits.js).
-ipcMain.handle('tavern:period', (_e, period) => periodBoard(claudeProjects(), periodStart(period)));
+ipcMain.handle('tavern:period', (_e, period) => periodBoard(claudeProjects(), periodStart(period), { projects: loadProjects().projects, roots: projectRoots() }));
 ipcMain.handle('tavern:tasksDone', () => tasksDone(readData().tasks));
 
 // The tap barrels (#279): the 5-hour allowance the status line last wrote; the owner's own, Demo mode too.
@@ -723,6 +730,8 @@ registerProjectPage({ ipcMain, P, DECK, read, readData, board, nowStamp, loadPro
 const { stopCodeWeb } = registerCodeWeb({ ipcMain, app, shell, P, SMOKE, sessions, findProject, loadProjects });
 registerStatus({ ipcMain, P, SMOKE });
 registerMissed({ ipcMain, P, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, cleanEnv });
+registerBackground({ ipcMain, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, live: claudeOn });
+registerWorktreeSweep({ app, SMOKE, DEMO, DECK, projects: () => loadProjects().projects, liveFolders: () => [...sessions.values()].filter(s => s.alive).map(s => s.cwd) });
 
 // ---------- shared files ----------
 function readData() {
@@ -1082,8 +1091,8 @@ app.whenReady().then(() => {
   if (SMOKE && !TRY) resetSmokeMe(P);
   // A file in a folder with a space, for the smoke run's link check (#350).
   if (SMOKE && !TRY) { const d = path.join(P.smoke, 'with space', 'media'); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'map-1080x1350.mp4'), ''); }
-  // A video editor's project file, for the binary link check (#317).
-  if (SMOKE && !TRY) fs.writeFileSync(path.join(P.smoke, 'intro-rough-2.editbay'), '');
+  // A file of a program of the owner's own (else a design file), for the binary link check (#317).
+  if (SMOKE && !TRY) fs.writeFileSync(path.join(P.smoke, `intro-rough-2.${OWN_APP_FILES[0] || 'psd'}`), '');
   if (!SMOKE && !DEMO) keepOldSettings();
   // Plugins start here, not at load: a global shortcut can only be taken once the app is ready.
   {

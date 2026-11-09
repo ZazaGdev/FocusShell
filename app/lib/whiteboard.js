@@ -7,6 +7,9 @@ import { managerFor } from './groups.js';
 // The question a card shows. A card the owner removed (#1168) is kept as { "<Project>#<n>": question }
 // and comes back when its question changes.
 export const cardQuestion = (task, ask) => (ask && ask.question) || task.text;
+// A card answered from Waiting (#2610) leaves it the same way, until its question changes: the
+// CTO may keep the item waiting on the owner (a trial still to do), and the answer is already sent.
+export const answeredCard = (hidden, project, task, ask) => ({ ...(hidden || {}), [`${project}#${task.n}`]: cardQuestion(task, ask) });
 
 // tasksMd: { project: markdown }. mgr: the CTO whose projects to show ('cto' covers the
 // projects in no group). Returns [{ project, cards: [{ task, ask }] }]: within a project
@@ -25,6 +28,17 @@ export function whiteboardCards(tasksMd, groups, mgr, skip = [], hidden = {}) {
 }
 
 export const cardCount = groups => groups.reduce((s, g) => s + g.cards.length, 0);
+
+// The age beside a card's number, in calendar days on this PC, from "YYYY-MM-DD" or
+// "YYYY-MM-DD HH:MM": "today", "1 day", "3 days", with the time when there is one (#2703):
+// "today 14:32", "1 day, 09:10".
+export function ageLabel(stamp, now = new Date()) {
+  const m = String(stamp || '').match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/);
+  if (!m) return '';
+  const days = Math.round((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(+m[1], m[2] - 1, +m[3])) / 864e5);
+  const age = days <= 0 ? 'today' : days === 1 ? '1 day' : `${days} days`;
+  return m[4] ? `${age}${days > 0 ? ',' : ''} ${m[4]}` : age;
+}
 
 // The card that holds the owner's place when the list redraws (#1734). rows: [{ key, top, bottom }],
 // each card's edges measured from the top of the scrolled view, height the view's height. The card

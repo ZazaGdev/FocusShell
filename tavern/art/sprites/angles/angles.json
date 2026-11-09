@@ -3,7 +3,7 @@
   "side",
   "back"
  ],
- "ai-fun": [
+ "sparky": [
   "side",
   "back"
  ],
@@ -11,7 +11,7 @@
   "side",
   "back"
  ],
- "budget-expense-tracker": [
+ "ledger": [
   "side",
   "back"
  ],
@@ -23,7 +23,7 @@
   "side",
   "back"
  ],
- "claude-setup": [
+ "tinkerer": [
   "side",
   "back"
  ],
@@ -71,7 +71,7 @@
   "side",
   "back"
  ],
- "video-editor": [
+ "director": [
   "side",
   "back"
  ]

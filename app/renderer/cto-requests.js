@@ -1,10 +1,11 @@
 // The CTO's requests to open and close panes (open-pane.ps1, close-pane.ps1, #185), and the
-// layout the opened projects land in.
+// layout the opened projects land in; and a file the owner asked it to open (#2768).
 import * as T from './terminal.js';
 import { toast } from './dom.js';
 import { splitWith } from '../lib/layouts.js';
 import { groupOf, findGroup, viewFor } from '../lib/groups.js';
 import { extraId } from '../lib/sessions.js';
+import { opensInExplorer } from '../lib/links.js';
 
 // c: the app's state as getters and setters (projects, openTabs, groups, groupViews, view,
 // single, ctx, splitSet, layoutId, openError) and its actions.
@@ -88,5 +89,24 @@ export function ctoRequests(c) {
     }, 1500);
   }
   deck.onOpenRequest(({ name, model }) => openRequest(name, model));
-  return { openRequest, openExtraRequest, closeRequest };
+  // A file the owner asked the CTO to open (deck open-file, #2768) opens exactly as a click on
+  // its path in an item does: a text file in the Code pane of its project, beside that project's
+  // lead, whose tab opens first if it is closed; a folder or a binary file shown in File
+  // Explorer. Nothing is typed into the lead.
+  async function fileRequest({ id, file }) {
+    const reply = text => deck.fileAnswer(id, text);
+    try {
+      const f = /^https?:/i.test(file) || opensInExplorer(file) ? null : await deck.fileAt(file);
+      if (!f) {
+        const shown = !/^https?:/i.test(file) && await deck.openPath(file);
+        reply(shown ? `Shown in File Explorer: ${file} (a folder, or a file the Code pane does not open).` : `Failed: there is no file or folder at ${file}.`);
+        return;
+      }
+      const r = await c.openFile(null, f);
+      if (typeof r === 'string') { reply(`Opened ${f} in the Code pane of ${r}, beside lead-${r}.`); toast(`Opened ${f.split(/[\\/]/).pop()} for the CTO`); }
+      else reply(r ? `Shown in File Explorer: ${f} (no project tab could hold it).` : `Failed: could not open ${f}.`);
+    } catch (e) { reply(`Failed: ${e.message}`); }
+  }
+  deck.onFileRequest(fileRequest);
+  return { openRequest, openExtraRequest, closeRequest, fileRequest };
 }

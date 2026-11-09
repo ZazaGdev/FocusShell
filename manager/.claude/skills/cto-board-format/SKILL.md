@@ -35,7 +35,9 @@ indented two spaces and starting with `> `:
 
 The date on the task line is when it was added; a `  > Done: <YYYY-MM-DD HH:MM>` line is
 when it was closed, written by `deck mark ... done` and removed when it is reopened.
-FocusShell shows both dates on the card as a small history.
+FocusShell shows both dates on the card as a small history. A `  > Waiting: <YYYY-MM-DD HH:MM>`
+line is when an item was marked needs you, written by `deck mark ... needs` and removed when
+its mark moves on; Waiting on you shows that time beside the card's number.
 A `  > Tags: Research, ...` line (comma separated) tags an item; tags show as badges and
 boards filter by them. The user keeps the list of tags in FocusShell's Settings; keep a
 Tags line when you edit the task.

@@ -84,6 +84,6 @@ export function searchSections(hits) {
 export function matchedDetail(e, typed) {
   const want = words(typed).filter(w => !meet(w, e.title) && !(e.proj[0] && e.proj[0].startsWith(w)));
   if (!want.length) return '';
-  const lines = [e.task.result, ...(e.task.details || [])].filter(l => l && !/^(Tags|Version|Priority|Done):/i.test(l));
+  const lines = [e.task.result, ...(e.task.details || [])].filter(l => l && !/^(Tags|Version|Priority|Done|Waiting):/i.test(l));
   return lines.find(l => want.some(w => meet(w, words(l)))) || '';
 }

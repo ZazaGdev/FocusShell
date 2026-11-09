@@ -30,17 +30,17 @@ test('ctoline: the line is found when sent, when queued mid-turn, and not when c
 });
 
 test('ctoline: the prompt box is checked before a typed-in line gets its Enter (#1277)', () => {
-  const W = 'WORDS ClaudeSetup #1210: the owner approved; typed into lead-ClaudeSetup: "yes"';
+  const W = 'WORDS Habitly #1210: the owner approved; typed into lead-Habitly: "yes"';
   assert.equal(boxAfterLine(W, W), 'send');
   // wrapped over two rows of the box
-  assert.equal(boxAfterLine('WORDS ClaudeSetup #1210: the owner approved; typed into\nlead-ClaudeSetup: "yes"', W), 'send');
+  assert.equal(boxAfterLine('WORDS Habitly #1210: the owner approved; typed into\nlead-Habitly: "yes"', W), 'send');
   // what 05:29 sent: the owner's dictated words were already in the box
   assert.equal(boxAfterLine(`Can you bring that GIF back to me. ${W}`, W), 'owner');
   // a long line Claude Code took in with characters lost between pieces, after the owner's words
   const L = `RECORDING: D:/rec/t.md | ${'FocusShell #1020: Remove it and more words here '.repeat(6)}`;
   assert.equal(boxAfterLine(`Can you bring that GIF back to me.${L.replace('more words', 'mowords')}`, L), 'mixed');
   // the screen has not caught up yet
-  assert.equal(boxAfterLine('WORDS ClaudeSetup #1210: the', W), 'wait');
+  assert.equal(boxAfterLine('WORDS Habitly #1210: the', W), 'wait');
   assert.equal(boxAfterLine('', W), 'wait');
   // no Claude Code input box on screen (a plain shell)
   assert.equal(boxAfterLine(null, W), 'send');

@@ -109,3 +109,26 @@ test('ask-owner writes the words request whole and can wait for the click', asyn
   assert.match((await runPane('ask-owner', ['Habitly', 'a\nb'], { data, running: on })).out, /one line/);
   assert.match((await runPane('ask-owner', ['Habitly', 'x'], { data, running: () => false })).out, /^Failed: the FocusShell app is not running/);
 });
+
+test('open-file asks the app to open a file the owner asked for, and passes its answer on (#2768)', async () => {
+  const data = deck(), file = path.join(data, 'projects.json');
+  const a = app(data, (f, body) => `Opened ${JSON.parse(body).file} in the Code pane of Habitly, beside lead-Habitly.`);
+  try {
+    const r = await runPane('open-file', [file], { data, running: on });
+    assert.deepEqual(r, { out: `Opened ${file} in the Code pane of Habitly, beside lead-Habitly.`, code: 0 });
+    assert.match(a.got[0].f, /^file-[0-9a-f]{12}\.req$/);
+    assert.deepEqual(JSON.parse(a.got[0].body), { file });
+    assert.deepEqual(fs.readdirSync(path.join(data, 'state', 'requests')), [], 'no request or answer is left behind');
+  } finally { a.stop(); }
+  const failed = app(data, () => 'Failed: could not open it.');
+  try { assert.equal((await runPane('open-file', [file], { data, running: on })).code, 1); } finally { failed.stop(); }
+  assert.match((await runPane('open-file', ['docs\\plan.md'], { data, running: on })).out, /^Refused: 'docs\\plan\.md' is not a full path/);
+  assert.match((await runPane('open-file', [path.join(data, 'nope.md')], { data, running: on })).out, /^Failed: there is no file or folder at /);
+  const off = await runPane('open-file', [file], { data, running: () => false });
+  assert.equal(off.code, 1);
+  assert.match(off.out, /not running.*Give the owner the path instead: /);
+  const quiet = await runPane('open-file', [file], { data, running: on, tries: 2 });
+  assert.match(quiet.out, /did not answer within 0\.4 seconds\. Give the owner the path instead\.$/);
+  await assert.rejects(runPane('open-file', [], { data, running: on }), /needs one full path/);
+  await assert.rejects(runPane('open-file', [file, file], { data, running: on }), /needs one full path/);
+});

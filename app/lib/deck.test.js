@@ -37,6 +37,7 @@ test('deck add, mark done with a result, detail, answer and title keep what was 
   assert.deepEqual(t1.details, ['Compare GitHub Pages and Netlify', 'Done: 2026-10-07 16:05', `Full report: ${NASTY}`], 'the old detail stays');
   run(['add', 'Demo', 'Pick a font'], c);
   run(['mark', 'Demo', '1001', 'needs'], c);
+  assert.deepEqual(item(c, 1001).details, ['Waiting: 2026-10-07 16:05'], 'marked needs you: when it started waiting (#2703)');
   run(['answer', 'Demo', '1001', 'b: the serif one'], c);
   run(['title', 'Demo', '1001', 'Pick the heading font'], c);
   const t3 = item(c, 1001);

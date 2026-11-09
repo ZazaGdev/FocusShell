@@ -22,11 +22,22 @@ remote (`git remote` lists one). Never force-push and never create a remote your
 the project has no remote, or the push fails (sign-in, rejected, offline), say so in the
 DONE result, e.g. `not pushed: no remote` or `not pushed: rejected, remote has newer commits`.
 
+A git worktree you make yourself (`git worktree add`, or an agent run with a worktree) goes in
+the `.worktrees\` folder of the project's main folder (an agent's own `.claude\worktrees\` is
+fine too), never inside another worktree; if git lists that folder as untracked, add
+`.worktrees/` to `.git\info\exclude`, never to a committed `.gitignore`. Once its work is
+merged into the main line and pushed, remove it before reporting DONE with
+`node {{DECKCMD}} worktree-remove '<its folder>'`, which checks it first. Never run
+`git worktree remove` or `git worktree prune` yourself, and skip those steps when a skill
+suggests them: git follows a link inside a worktree and empties the folder it points to, and
+a prune can drop the only record of commits. If the command keeps the worktree, leave it and
+name its folder and the reason in the DONE result.
+
 ## Reading a brief
 
 A task is a brief with fixed parts: `Your words` (the user's request, verbatim and
 possibly voice-dictated), `Goal`, `Why`, `Where to look`, `Out of scope`, `Done when`
-and `Guesses`.
+and `Guesses`, sometimes also `Effort` (see Effort below).
 
 - `Your words` outranks the rest. If the brief and the user's words disagree, follow
   the words and say so in your report.
@@ -42,6 +53,28 @@ and `Guesses`.
   picked one of the options you showed. If the spec adds a decision the owner never
   answered, send NEEDS YOU for that decision only, and build the rest meanwhile.
 
+## Effort
+
+Each task runs at an effort level you pick: low, medium, high, xhigh or max.
+
+- When a task starts, pick a level from the guide below, call the matching `effort-<level>`
+  skill (listed as `focusshell:effort-<level>`), then say it in one line in this pane, e.g.
+  `Effort: high (a normal fix across three files)`.
+- A level named in the brief's `Effort:` part, or by the user in this pane, wins over the guide.
+- The level lasts until your turn ends. When the same task carries on in a new turn (an
+  `ANSWER`, the user typing more, a resume), call the same skill again first.
+- If the task turns out harder or easier than it looked, call the other level's skill and
+  say so in one line.
+- No skill for `STATUS?`, `CATCH UP`, `HOLD` or a plain question.
+
+| Level  | For |
+|--------|-----|
+| low    | a label, colour or wording change; board chores; a plain lookup |
+| medium | a small, clear fix in one or two files |
+| high   | a normal feature or bug fix across a few files |
+| xhigh  | a big or tricky feature, a bug with no known cause, a plan, a brainstorm, research |
+| max    | security fixes and security audits, heavy audits, money or payment code, anything that could lose data |
+
 ## Reporting
 
 Every piece of work ends with a report, always: a TASK from a CTO, a backlog item, and
@@ -51,14 +84,15 @@ Send it to the session that sent you the TASK (its `from-name`, such as `cto` or
 `cto-<Group>`); for work the user gave you directly, send it to `{{MANAGER}}`.
 
 ```
-DONE #<n> | <one-line result> | tests: pass|fail|none | commit: <hash or none>
+DONE #<n> | <one-line result> | effort: <level> | tests: pass|fail|none | commit: <hash or none>
 NEEDS YOU #<n> | <the actual question> | options: <a>, <b> | suggest: <a>
 BLOCKED #<n> | <what stopped it> | unblock: <what would>
 ```
 
 Work with no task number (the user asked in this pane, and it is not a line in the task
 file) puts `new` in place of `#<n>` and a short title before the result, e.g.
-`DONE new | Allow the two report scripts | allowed both in settings | tests: none | commit: fda826d`.
+`DONE new | Allow the two report scripts | allowed both in settings | effort: low | tests: none | commit: fda826d`.
+`effort:` is the level the task ran at, the last one you set if it changed.
 The CTO adds it to the task file with the next number. An answer to a `NEEDS YOU new`
 comes back as `ANSWER #<n>: ...` with that number; use it from then on. A plain question
 answered in this pane, with nothing changed, needs no report.
@@ -90,8 +124,8 @@ it is and where>; to do: <the action and how to tell it is done>)` part per thin
 DONE result, written so the user understands it a day later without this conversation, e.g.
 `DONE #12 | shortcuts carry the taskbar ID; owner: check the taskbar logo (what: the
 FocusShell desktop shortcut now carries the app's taskbar ID; to do: reopen FocusShell from
-that shortcut and check the taskbar shows the FocusShell logo, not Electron's) | tests: none |
-commit: 9de97c4`. The CTO files
+that shortcut and check the taskbar shows the FocusShell logo, not Electron's) | effort: medium |
+tests: none | commit: 9de97c4`. The CTO files
 each one as a task for the user; one that only asks the user to read a research result
 (`owner: read <report path>`) goes on the user's own board, tagged Research. Name every file the user has to read for it by its full
 path in the DONE result, so the user's task links to it.
@@ -133,7 +167,7 @@ its full text is on the indented `  > ` lines under it. A `> Sketch: sketches/<P
 line is a drawing the user attached, in FocusShell's data folder (the parent of the tasks folder),
 with a PNG preview beside it as `<id>.png`; look at the PNG when the task needs it. A `> Screenshot: <full path>`
 line is a screenshot from the user's screen recording: look at it with the Read tool. A `> Done: <YYYY-MM-DD HH:MM>`
-line is when a task was closed. The CTO and the PM keep it up to date from your reports, so
+line is when a task was closed, and a `> Waiting: <YYYY-MM-DD HH:MM>` line when it was marked needs you. The CTO and the PM keep it up to date from your reports, so
 you do not need to change it for tasks the CTO sent. If the user gives you work directly, or
 asks "what can we work on?", use the `backlog` skill on that file.
 

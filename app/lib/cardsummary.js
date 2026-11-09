@@ -27,7 +27,7 @@ export function scrub(md) {
     .replace(/\s(?:on |for )?(?:task|item|card) \d+\b/gi, '')
     .replace(/\blead-[\w-]+/g, 'the lead')
     .replace(/[A-Za-z]:\\[^\s,;)]+/g, 'a file')
-    .replace(MAC ? new RegExp(MAC_PATH.replace('[^\\s"', '[^\\s,;)"'), 'g') : /$^/g, 'a file')
+    .replace(MAC ? new RegExp(MAC_PATH.replace('[^\\s"', '[^\\s,;)"'), 'g') : /(?!)/g, 'a file')
     .replace(/[–—]/g, ',')
     .replace(/ {2,}/g, ' ').replace(/ ([.,;])/g, '$1');
 }
@@ -35,7 +35,7 @@ export function scrub(md) {
 // What the model reads: the card's title, its short result and its detail lines.
 export function summaryInput(project, task) {
   return [`Project: ${project}`, `Card: ${task.text}`, task.result ? `Short status: ${task.result}` : '',
-    ...(task.details || []).filter(d => !/^(Done|Priority|Version|Due|Sketch|Screenshot|Transcript):/i.test(d))].filter(Boolean).join('\n');
+    ...(task.details || []).filter(d => !/^(Done|Waiting|Priority|Version|Due|Sketch|Screenshot|Transcript):/i.test(d))].filter(Boolean).join('\n');
 }
 
 // A short hash of the card's text: a new summary is made only when that changes.
