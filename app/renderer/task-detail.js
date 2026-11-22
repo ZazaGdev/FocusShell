@@ -31,9 +31,11 @@ addEventListener('pointerdown', e => {
 
 // The card on screen, if any, so the app can refresh it when its files change.
 export const openCard = () => (cur ? { project: cur.ctx.project, n: cur.ctx.task.n } : null);
+// The card keeps its own copy of the item: the board's parse is shared (#2928) and the card
+// writes its new title and mark into it.
 export async function refreshTask(task) {
   if (!cur || dirty()) return;
-  const ctx = { ...cur.ctx, task }, extra = await ctx.deck.taskExtra(ctx.project, task.n);
+  const ctx = { ...cur.ctx, task: { ...task } }, extra = await ctx.deck.taskExtra(ctx.project, task.n);
   if (!cur || cur.ctx.project !== ctx.project || cur.ctx.task.n !== task.n || dirty()) return;
   if (JSON.stringify([task, extra]) !== cur.sig) draw(ctx, extra);
 }
@@ -52,6 +54,7 @@ export function talkIntoCard() {
 // the board, talk(text, answer) sends a line about this card to its CTO (true if sent) and
 // openMd(path) opens a Markdown file in its project's VS Code pane (true if opened).
 export async function openTask(ctx) {
+  ctx = { ...ctx, task: { ...ctx.task } };
   closeTask();
   panel = ctx.h('aside', { class: 'tdpanel' }, ctx.h('div', { class: 'tdbody' }, ctx.h('div', { class: 'empty-note' }, 'Loading…')));
   document.body.append(panel);
@@ -86,7 +89,7 @@ function draw(ctx, extra) {
   const section = (label, ...kids) => [h('div', { class: 'tdlab' }, label), ...kids];
   // Done beside the title (#168), where it is seen; a done item offers Reopen there.
   const doneBtn = t.mark === 'x' ? h('button', { class: 'btn tddone', onclick: () => setMark(' ') }, 'Reopen')
-    : h('button', { class: 'btn primary tddone', title: 'Mark this item done', onclick: () => setMark('x') }, 'Done');
+    : h('button', { class: 'btn primary tddone', onclick: () => setMark('x') }, 'Done');
   const details = t.details.filter(d => !(project === 'Me' ? /^(Version|Priority|Sketch|Screenshot|Due|Repeat|Done|Waiting|Tags):/i : /^(Version|Priority|Sketch|Screenshot|Done|Waiting|Tags):/i).test(d));
   const shots = screenshotsOf(t);
 
@@ -228,10 +231,10 @@ function sketchRow(ctx) {
     for (const s of [...own, ...me]) if (!have.includes(s.rel)) pick.append(h('option', { value: s.rel }, sketchName(s.rel) + (parseRel(s.rel).project !== project ? ` (${parseRel(s.rel).project})` : '')));
   });
   // New sketch (#140) opens the board at once, named after the item ("-2", "-3" when taken).
-  const newSk = h('button', { class: 'btn', title: 'Draw a new sketch for this item', onclick: () => openSavedSketch({ project, name: t.text, onSaved: attach }) }, icon('pen'), 'New sketch');
+  const newSk = h('button', { class: 'btn', onclick: () => openSavedSketch({ project, name: t.text, onSaved: attach }) }, icon('pen'), 'New sketch');
   return h('div', { class: 'tdsks' },
     have.length ? h('div', { class: 'skbs' }, have.map(rel => h('span', { class: 'skb' },
-      h('button', { title: `Open the sketch "${sketchName(rel)}"`, onclick: () => openSavedSketch({ rel, project: parseRel(rel).project, name: sketchName(rel), onSaved: () => ctx.onChange() }) }, icon('pen'), sketchName(rel)),
+      h('button', { onclick: () => openSavedSketch({ rel, project: parseRel(rel).project, name: sketchName(rel), onSaved: () => ctx.onChange() }) }, icon('pen'), sketchName(rel)),
       h('button', { class: 'skx', title: 'Take this sketch off', onclick: () => deck.sketchDetach(item, rel).then(() => ctx.onChange()) }, icon('x'))))) : null,
     h('div', { class: 'tdsk' }, pick, newSk));
 }

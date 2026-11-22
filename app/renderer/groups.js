@@ -52,7 +52,7 @@ export function groupsSection(c) {
   for (const g of groups) {
     const others = projects.filter(p => !g.projects.includes(p.name));
     const inGroup = n => (groups.find(x => x.projects.includes(n)) || {}).name;
-    const pick = h('select', { class: 'gadd', title: 'Add a project to this group', onchange: () => { const n = pick.value; pick.value = ''; if (n) c.addProject(g.name, n); } },
+    const pick = h('select', { class: 'gadd', onchange: () => { const n = pick.value; pick.value = ''; if (n) c.addProject(g.name, n); } },
       h('option', { value: '' }, 'Add project...'),
       others.map(p => h('option', { value: p.name }, inGroup(p.name) ? `${p.name} (in ${inGroup(p.name)})` : p.name)));
     cards.push(h('div', { class: 'preset' },
@@ -74,6 +74,6 @@ export function groupsSection(c) {
     title: open.length ? 'Keep the projects on screen and their split as a group, named after them' : 'Open a project first', onclick: () => c.saveOpen() },
   icon('plus'), open.length ? `Save what is open (${open.join(', ')})` : 'Save what is open'));
   if (picking) cards.push(pickerCard(c));
-  else cards.push(h('button', { class: 'gnew', title: 'Pick the projects for a new group', onclick: () => { picking = { sel: [...open], name: c.suggestName(open), named: false }; c.rerender(); } }, icon('plus'), 'New group...'));
+  else cards.push(h('button', { class: 'gnew', onclick: () => { picking = { sel: [...open], name: c.suggestName(open), named: false }; c.rerender(); } }, icon('plus'), 'New group...'));
   return [h('h2', {}, 'Groups'), h('div', { class: 'presets' }, cards)];
 }

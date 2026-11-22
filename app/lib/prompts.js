@@ -76,6 +76,15 @@ export function alertStep(prev, what, now) {
 // null; `at` is the option the cursor is on and `other` the option that takes typed words.
 const OPT = /^\s*([❯>›]\s*)?(\d+)\.\s+(.*\S)\s*$/;
 export const RULE = l => /^[\s─━╭╮╰╯-]*$/.test(l) && /[─━-]{6}/.test(l); // a box edge or a divider
+// An edge of Claude Code's input box (#3015): a RULE, or a rule with the session's name in it
+// ("──── lead-X ─", also with the name at the left or cut short in a narrow pane): at least 3
+// rule characters at one end, at least 6 in all, and other text.
+export function boxEdge(l) {
+  if (RULE(l)) return true;
+  const t = String(l).trim();
+  if (!/^[─━]{3}/.test(t) && !/[─━]{3}$/.test(t)) return false;
+  return (t.match(/[─━]/g) || []).length >= 6 && /[^\s─━╭╮╰╯-]/.test(t);
+}
 export function readPrompt(rows) {
   const lines = rows.map(l => String(l).replace(/^\s*│ ?/, '').replace(/\s*│\s*$/, '').replace(/\s+$/, ''));
   let ask = -1, foot = -1;
@@ -158,10 +167,10 @@ export const BOX_LINE = /^\s*[│|]?\s*[>❯](\s|$)(?!\s*\d+\.)/;
 export function inputDraft(rows) {
   const lines = rows.map(l => String(l).replace(/\s+$/, ''));
   let at = -1;
-  lines.forEach((l, i) => { if (i > 0 && BOX_LINE.test(l) && RULE(lines[i - 1])) at = i; });
+  lines.forEach((l, i) => { if (i > 0 && BOX_LINE.test(l) && boxEdge(lines[i - 1])) at = i; });
   if (at < 0) return null;
   const text = [];
-  for (let i = at; i < lines.length && (i === at || !RULE(lines[i])); i++) {
+  for (let i = at; i < lines.length && (i === at || !boxEdge(lines[i])); i++) {
     text.push(lines[i].replace(/^\s*│ ?/, '').replace(/\s*│$/, '').replace(i === at ? /^\s*[>❯]\s?/ : /^$/, ''));
   }
   return text.join('\n').trim();

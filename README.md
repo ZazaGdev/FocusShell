@@ -50,10 +50,8 @@ Because the Mac version is not signed:
 
 FocusShell has no analytics. Everything that reaches Anthropic goes through your own Claude Code
 sign-in and counts against your Claude plan: the sessions in your panes, and short headless
-Claude Code turns FocusShell runs for you. Two of those run on their own, on Haiku: a plain
-summary of each Waiting on you card (it sends the card's text), and Maybe missed, which reads the
-CTO pane's own Claude Code log on your PC and asks about a message only when its own rules cannot
-tell. The AI helper, catch-up recaps and the screen recorder's cards (a recording's transcript and
+Claude Code turns FocusShell runs for you. One of those runs on its own, on Haiku: a plain
+summary of each Waiting on you card (it sends the card's text). The AI helper, catch-up recaps and the screen recorder's cards (a recording's transcript and
 screenshots) run only when you use them. Transcription itself runs on your PC.
 
 FocusShell checks this repo's Releases for updates, the Code pane downloads VS Code's web build

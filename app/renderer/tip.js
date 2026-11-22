@@ -1,11 +1,11 @@
-// The app's one tooltip (#1035): a small inverted label with an arrow, shown 300ms after the
-// pointer rests on an element with data-tip, or at once when keyboard focus lands on it. h()
+// The app's one tooltip (#1035): a small inverted label with an arrow, shown DELAY (2 s, #2987)
+// after the pointer rests on an element with data-tip, or after keyboard focus lands on it. h()
 // turns every title into data-tip; an element given a plain title some other way is converted
 // the moment it is hovered or focused, so the browser's own tooltip never shows. The Sketch
 // board (Excalidraw) keeps its own titles. lib/tip.js has the placement rules.
-import { DELAY, CHAIN, GAP, splitTip, placeTip } from '../lib/tip.js';
+import { DELAY, GAP, splitTip, placeTip } from '../lib/tip.js';
 
-let el = null, timer = null, over = null, lastHide = 0, watch = null;
+let el = null, timer = null, over = null, watch = null;
 
 // A plain title becomes data-tip, and names the element for screen readers when it has no text.
 export function adoptTitle(node) {
@@ -26,7 +26,7 @@ function targetOf(node) {
 function hide() {
   clearTimeout(timer); timer = null;
   if (watch) watch.disconnect(); watch = null;
-  if (el) { el.remove(); lastHide = Date.now(); }
+  if (el) el.remove();
   el = null; over = null;
 }
 function fill(target) {
@@ -60,9 +60,8 @@ function arm(target) {
   if (target === over) return;
   hide();
   over = target;
-  // data-tip-delay (ms) waits that long every time, even right after another tip (#2329).
-  const slow = Number(target.dataset.tipDelay) || 0;
-  timer = setTimeout(() => show(target), slow || (Date.now() - lastHide < CHAIN ? 0 : DELAY));
+  // Always DELAY, even right after another tip (#2987); data-tip-delay (ms) can only lengthen it.
+  timer = setTimeout(() => show(target), Math.max(DELAY, Number(target.dataset.tipDelay) || 0));
 }
 
 document.addEventListener('mouseover', e => {
@@ -72,7 +71,7 @@ document.addEventListener('mouseover', e => {
 });
 document.addEventListener('focusin', e => {
   const t = targetOf(e.target);
-  if (t && e.target.matches(':focus-visible')) { hide(); over = t; show(t); }
+  if (t && e.target.matches(':focus-visible')) arm(t);
 });
 document.addEventListener('focusout', () => { if (over && !over.matches(':hover')) hide(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && el) hide(); }, true);

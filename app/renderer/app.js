@@ -1,5 +1,5 @@
 // FocusShell window: Home dashboard, session tabs, snap layouts, voice.
-import { parseTasks, optionsOf, parseNotes, splitTaskNotes } from '../lib/tasks.js';
+import { parsedTasks, optionsOf, parseNotes, splitTaskNotes } from '../lib/tasks.js';
 import { LAYOUTS, SINGLE_WITH_MANAGER, slotCount, autoLayout } from '../lib/layouts.js';
 import * as T from './terminal.js';
 import * as C from './code.js';
@@ -16,7 +16,7 @@ import { openWhiteboard, closeWhiteboard, refreshWhiteboard, waitingCount, setup
 import { boardSection, ownerKind, isTest } from './board.js';
 import { renderDash, revealMe, ME } from './home.js';
 import { renderSide, renderPmDrawer } from './sidebar.js';
-import { renderSettings } from './settings.js';
+import { renderSettings, settingsSection } from './settings.js';
 import { applyPrefs } from './prefs.js';
 import { emptyBoard } from './connect.js';
 import { setupWizard, resetSetup } from './setup.js';
@@ -30,15 +30,15 @@ import { h, icon, toast } from './dom.js';
 import { smoke } from './smoke.js';
 import { renderMe } from './me.js';
 import { waitingWatch } from './waiting.js';
+import { contextWatch } from './context-reopen.js';
 import { showMissing } from './requirements.js';
-import { setupMissed, refreshMissed, closeMissed } from './missed.js';
 import { ctoRequests } from './cto-requests.js';
 import { setupStatus } from './status.js';
 import { leadTask, leadDot, outputStep, printing } from '../lib/status.js';
 import { setupFocusLog, focusLog } from './focuslog.js';
 import { miniTree } from './layout-ui.js';
 import { typeLine, deliver, drafting } from './cto-line.js';
-import { tavernButton, setTavernOn } from './tavern/tavern.js';
+import { tavernButton, setTavernOn, tavernOpen } from './tavern/tavern.js';
 import { startNav, noteSoon } from './nav.js';
 
 const deck = window.deck;
@@ -74,7 +74,8 @@ const leadWt = new Map();     // extra lead session id -> whether it has its own
 let leadSplits = {};          // project -> lead numbers its pane shows side by side when it is alone on screen (#1554)
 
 const proj = n => projects.find(p => p.name === n);
-const tasksOf = n => parseTasks(tasksMd[n] || '');
+// A board's items, from the parse every reader of the same text shares (#2928): read-only.
+const tasksOf = n => parsedTasks(n, tasksMd[n] || '');
 // Working: printing steadily, as Claude's spinner does for a whole turn; a recap or redraw on
 // an idle pane is a short burst and leaves it idle (#2706).
 const isActive = id => printing(outputRuns.get(id), Date.now());
@@ -112,7 +113,7 @@ function saveUi() {
   deck.saveUi({ view, single, splitSet, layoutId, groupViews, mainView, homeLayout, leadSplits, lastSession: snap || null });
 }
 function saveGroups(next) { groups = next; deck.saveGroups(groups); }
-function saveSettings(next) { settings = normalizeSettings(next); deck.saveSettings(settings); if (!settings.showMissed) closeMissed(); setTavernOn(settings.showTavern); applyPrefs(settings, T.refitAll); render(); }
+function saveSettings(next) { settings = normalizeSettings(next); deck.saveSettings(settings); setTavernOn(settings.showTavern); applyPrefs(settings, T.refitAll); render(); }
 
 // ---------- sessions ----------
 let openError = ''; // why the last ensureSession failed, for the CTO's open request (#185)
@@ -182,6 +183,15 @@ async function restart(id) {
   await deck.kill(id); started.delete(id); T.reset(id);
   await ensureSession(id, { ...(extraOf(id) ? { worktree: leadWt.get(id) } : {}), orFresh: !!resumeId }, resumeId || undefined); render();
 }
+// A pane at 90% context reopened fresh (#3016): never resumed, kept in started throughout, an
+// extra lead's worktree kept and reused, the same model.
+async function reopenFresh(id) {
+  await deck.kill(id, { keep: true }); T.reset(id);
+  const r = await deck.open(id, undefined, { ...(extraOf(id) ? { worktree: leadWt.get(id) } : {}), ...(paneModel.has(id) ? { model: paneModel.get(id) } : {}) });
+  if (!r.ok) { started.delete(id); T.markExited(id, true); toast(r.error, true); }
+  render();
+  return r.ok;
+}
 
 // ---------- the parts split out of this file (#1785) ----------
 // They read and set this file's state through S; the functions they call join it before boot.
@@ -206,26 +216,36 @@ deck.onExit(({ id, shell }) => { T.markExited(id, true, !!shell); render(); });
 deck.onNotJoined(({ id }) => toast(`${labelOf(id)} has not connected to the others, so the CTO cannot reach it. Check its pane for a question; if there is none, reopen it.`, true,
   { label: 'Reopen', run: () => restart(id) }));
 deck.onBack(({ id }) => { T.markExited(id, false); render(); });
+// The data is applied before the project list is awaited (#2928): a change that came meanwhile
+// is applied after it, so an older payload never puts an older board back.
 deck.onDataChanged(async d => {
-  if (d.projectsChanged) projects = await deck.projectList();
   if (d.groups) groups = normalizeGroups(d.groups);
   // A smoke run holds its own boards for the leads it tests, whatever the real files do meanwhile.
-  tasksMd = { ...d.tasks, ...smokeHold }; notesMd = d.notes; ideasMd = d.ideas ?? ideasMd;
+  // A partial change (#2928) brings only the boards and files that changed (a board null: gone).
+  if (d.partial) {
+    const next = { ...tasksMd };
+    for (const [name, md] of Object.entries(d.tasks || {})) { if (md === null) delete next[name]; else next[name] = md; }
+    tasksMd = { ...next, ...smokeHold };
+    if ('notes' in d) notesMd = d.notes;
+    if ('ideas' in d) ideasMd = d.ideas;
+  } else { tasksMd = { ...d.tasks, ...smokeHold }; notesMd = d.notes; ideasMd = d.ideas ?? ideasMd; }
+  if (d.projectsChanged) projects = await deck.projectList();
   if (d.groups) render(); else redrawPage();
   updateLive(); refreshWhiteboard(); wbCounts(); wantSummaries(deck, tasksMd, [ME]);
   // An open card follows its task and its notes, so the CTO's reply shows without reopening.
   const c = openCard(), fresh = c && tasksOf(c.project).find(t => t.n === c.n);
   if (fresh) refreshTask(fresh);
 });
-const { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords } = waitingWatch({
+const { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords, wordReqs } = waitingWatch({
   deck, started, groups: () => groups, hasProjects: () => projects.length > 0, mgrName, openTab, updateLive, showPrompts,
   outputAt: id => lastOutput.get(id) || 0,
 });
+const contextCheck = contextWatch({ deck, started, groups: () => groups, mgrName, waitingOn, backOn, wordReqs, outputAt: id => lastOutput.get(id) || 0, reopen: reopenFresh }).checkNow;
 function showPrompts() { redrawPage(); refreshWhiteboard(); wbCounts(); }
 deck.onNavProject(name => { if (proj(name)) openProjectPage(name); });
 deck.onNavMe(() => { revealMe(); view = 'me'; render(); });
 const { openRequest, openExtraRequest, closeRequest } = ctoRequests({
-  deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, openTab, openExtra, closeTab, closeExtra, render, openFile: (...a) => openFile(...a),
+  deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, backOn, openTab, openExtra, closeTab, closeExtra, render, openFile: (...a) => openFile(...a),
   get projects() { return projects; }, set projects(v) { projects = v; }, get openTabs() { return openTabs; }, get groups() { return groups; }, get groupViews() { return groupViews; },
   get view() { return view; }, set view(v) { view = v; }, get single() { return single; }, get ctx() { return ctx; }, set ctx(v) { ctx = v; },
   get splitSet() { return splitSet; }, set splitSet(v) { splitSet = v; }, set layoutId(v) { layoutId = v; }, get openError() { return openError; }, set openError(v) { openError = v; },
@@ -399,14 +419,8 @@ const wbButton = id => h('button', { class: 'wbbtn', 'data-wb': id, title: 'Wait
   setHidden: m => { homeLayout = { ...(homeLayout || {}), wbHidden: m }; saveUi(); wbCounts(); },
 }) }, icon('board'), h('span', {}, 'Waiting'), h('b', {}, String(wbCount(id))));
 const wbCount = m => waitingCount(tasksMd, groups, m, [ME], wbHidden()) + waitingLeads(m).length;
-function wbCounts() { document.querySelectorAll('.wbbtn[data-wb]').forEach(b => { b.lastChild.textContent = String(wbCount(b.dataset.wb)); }); refreshMissed(); }
-// Maybe missed (#367): beside Waiting on you, what the owner may have skipped in the CTO's replies.
-setupMissed({ h, icon, deck, toast, openMd, tasksMd: () => tasksMd, prompts: m => waitingLeads(m), mgrName,
-  ctos: () => [...started].filter(id => isMgr(id) && !T.isExited(id)), onChange: () => { if (view === 'home') renderHome(); },
-  talk: (p, n, text) => talkCard(p, n, text, true),
-  tell: async (m, line) => { if (!started.has(m) || T.isExited(m)) { toast(`The ${mgrName(m)} is not running.`, true); return false; } await toCto(m, line, `Sent to the ${mgrName(m)}`); return true; } });
-setInterval(refreshMissed, 20000);
-// Status (#383): beside Missed, where each lead open for that CTO stopped.
+function wbCounts() { document.querySelectorAll('.wbbtn[data-wb]').forEach(b => { b.lastChild.textContent = String(wbCount(b.dataset.wb)); }); }
+// Status (#383): beside Waiting, where each lead open for that CTO stopped.
 const leadsOfMgr = m => [...started].filter(id => !isMgr(id) && id !== PM && !T.isExited(id) && managerFor(groups, projectOf(id)) === m)
   .map(id => ({ id, name: sessionName(id), busy: isActive(id), prompt: waitingOn.has(id), task: leadTask(tasksOf(projectOf(id)), sessionName(id)) }));
 setupStatus({ h, icon, deck, mgrName, leadsOf: leadsOfMgr, lastOutput: id => lastOutput.get(id) || 0,
@@ -421,7 +435,7 @@ function send(project, n) {
 // A project's board shows its notes and recent commits, loaded when it opens.
 let boardFocus = null, boardExtra = null;
 // Home's board tab and the For you kind filter, for this run (#160); the ticked projects (#205), the
-// priority and tag filters and the sort (#293) are kept in homeLayout.
+// priority and tag filters, the sort (#293) and Show done (#2988) are kept in homeLayout.
 let boardTab = 'kind', boardKind = 'all';
 const setBoard = (k, v) => { homeLayout = { ...(homeLayout || {}), [k]: v }; saveUi(); renderHome(); };
 async function setBoardFocus(name) {
@@ -454,7 +468,8 @@ function renderHome() {
     tab: boardTab, setTab: t => { boardTab = t; renderHome(); }, kind: boardKind, setKind: k => { boardKind = k; renderHome(); },
     only: (homeLayout || {}).boardOnly, setOnly: l => { homeLayout = { ...(homeLayout || {}), boardOnly: l }; saveUi(); renderHome(); }, prios: (homeLayout || {}).boardPrios, setPrios: l => setBoard('boardPrios', l), tags: settings.tags,
     tagFilter: (({ tags = [], mode } = (homeLayout || {}).boardTags || {}) => ({ tags: tags.filter(x => settings.tags.includes(x)), mode }))(), setTagFilter: f => setBoard('boardTags', f),
-    sort: (homeLayout || {}).boardSort, setSort: s => setBoard('boardSort', s), prompts: waitingLeads(), promptCard: leadCard, showTask,
+    sort: (homeLayout || {}).boardSort, setSort: s => setBoard('boardSort', s),
+    showDone: !!(homeLayout || {}).boardShowDone, setShowDone: v => setBoard('boardShowDone', v), prompts: waitingLeads(), promptCard: leadCard, showTask,
     send, answer, compact: settings.boardCompact, keeper: settings.runPm ? 'PM' : 'CTO',
     markDone: async (p, n) => { const d = await deck.setTaskMark(p, n, 'x'); tasksMd = d.tasks; renderHome(); },
     addTask: async (p, text) => { const d = await deck.addTask(p, text); tasksMd = d.tasks; renderHome(); toast(`Added to ${p}`); },
@@ -609,7 +624,7 @@ function draw(held) {
 }
 
 // Back and forward (#301): this file's part of each step, and putting one back.
-const BOARD_KEYS = ['boardOnly', 'boardPrios', 'boardTags', 'boardSort'];
+const BOARD_KEYS = ['boardOnly', 'boardPrios', 'boardTags', 'boardSort', 'boardShowDone'];
 startNav({ deck, render, tasksOf, showTask,
   isOpenTab: n => openTabs.includes(n) || ((isMgr(n) || n === PM) && started.has(n)),
   get: () => ({ view, single, splitSet: [...splitSet], layoutId, ctx, currentProject, boardFocus, showDone, boardTab, boardKind, pmOpen,
@@ -637,22 +652,28 @@ document.getElementById('btnSettings').onclick = () => { view = 'settings'; rend
 // In-app updates (#1088): "Update ready" before Settings once a new version has downloaded.
 setupUpdates({ h, icon, bar: document.getElementById('btnSettings'), onChange: () => { if (view === 'settings') showSettings(false); } });
 // Plugins (#369): their title bar buttons go before Settings; Settings redraws as they change.
-// The Plugins button (#377) lists them and switches them on and off.
+// Each has its own Settings card; a plugin's menu opens it with openSettings (#2919). The Plugins
+// button (#377) is hidden for now, so the recorder's Record button takes its place.
 startPlugins({ h, icon, deck, toast, bar: document.getElementById('btnSettings'), onChange: () => { if (view === 'settings') showSettings(false); },
   settings: () => settings, save: saveSettings,
+  openSettings: sec => { settingsSection(sec); view = 'settings'; render(); },
   cto: line => recordingToCto(line),
   terminal: { mount: T.mount, focus: T.focus, dispose: T.dispose, type: (id, line) => typeLine(deck, id, line) } });
 document.getElementById('btnNew').onclick = togglePop('newmenu', renderNewMenu);
 // The Pixel Tavern (#240): every live session a guest; questions answered the way their cards answer.
 let tavernHelpers = [], smokeRun = false;
-setInterval(async () => {
+// The helpers are asked for only while the tavern is open (#2928): the main process lists every
+// past conversation's helper logs to answer, and the closed tavern's badge counts only questions.
+async function pullHelpers() {
+  if (!tavernOpen()) { tavernHelpers = []; return; }
   const list = await deck.tavernHelpers().catch(() => []);
   tavernHelpers = list.map(x => ({ ...x, project: isMgr(x.parent) || x.parent === PM ? 'All projects' : projectOf(x.parent) }));
-}, 5000);
+}
+setInterval(pullHelpers, 5000);
 // The Demo (#135): set when it starts, so its tavern's robots are a new mix each start (#305).
 let demoSeed = 0;
 document.getElementById('btnSettings').before(tavernButton({
-  h, icon, deck, toast, openPane: openTab, isSmoke: () => smokeRun,
+  h, icon, deck, toast, openPane: openTab, isSmoke: () => smokeRun, beforeOpen: pullHelpers,
   input: () => ({
     sessions: [...started].filter(id => !T.isExited(id)).map(id => {
       const role = isMgr(id) ? 'cto' : id === PM ? 'pm' : 'lead', project = role === 'lead' ? projectOf(id) : null;
@@ -689,7 +710,7 @@ document.getElementById('btnLayout').onclick = togglePop('layouts');
   projects = init.projects; tasksMd = init.data.tasks; notesMd = init.data.notes; ideasMd = init.data.ideas || ''; voiceMode = init.voiceMode;
   setupFocusLog(init.focusLog, { talking });
   setupSummaries(deck); wantSummaries(deck, tasksMd, [ME]);
-  setWords(await deck.wordsList());
+  setWords(await deck.wordsList(true)); // true: this page just loaded, so clicked requests are picked up again (#2991)
   showMissing(init.missing);
   // During the first-run setup the CTO waits for it to end (#1061).
   settings = normalizeSettings(init.settings);
@@ -710,7 +731,7 @@ document.getElementById('btnLayout').onclick = togglePop('layouts');
       set pmOpen(v) { pmOpen = v; }, get splitSet() { return splitSet; }, get openTabs() { return openTabs; }, get groups() { return groups; }, set groups(v) { groups = v; },
       get settings() { return settings; }, set hold(v) { smokeHold = v || {}; }, set smokePick(v) { smokePick = v; }, startSetup, startTour, set settings(v) { settings = v; }, collapsed, saveSettings,
       render, openTab, closeTab, openProjectPage, openRequest, openExtraRequest, closeRequest, setBoardFocus, openGroup, openMd, openFile, wbCounts, openExtra, closeExtra, proj, tasksOf, showTask, checkPromptAlerts,
-      focusLog, toCto, redrawPage, restart,
+      focusLog, toCto, redrawPage, restart, contextCheck,
     }).catch(e => deck.smokeFail((e && e.stack) || e));
     return;
   }

@@ -28,7 +28,6 @@ export const DEFAULTS = {
   font: 'inter',         // the app's font, one of FONTS (terminals keep their own)
   setupDone: false,      // the first-run setup was finished or skipped (#1061)
   tourDone: false,       // the walkthrough after it was finished or skipped (#1036)
-  showMissed: true,      // the Maybe missed button above each CTO pane (#1101)
   showTavern: true,      // the Tavern button and the tavern itself (#1101)
 };
 export const STATUS_EVERY = [5, 30, 60, 120];
@@ -102,7 +101,6 @@ export function normalizeSettings(raw) {
     font: pick(FONTS, s.font, DEFAULTS.font),
     setupDone: s.setupDone === true,
     tourDone: s.tourDone === true,
-    showMissed: s.showMissed !== false,
     showTavern: s.showTavern !== false,
   };
 }

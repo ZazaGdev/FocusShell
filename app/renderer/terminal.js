@@ -2,9 +2,10 @@
 // so switching tabs or layouts never loses a session's screen.
 import { Terminal } from '../node_modules/@xterm/xterm/lib/xterm.mjs';
 import { FitAddon } from '../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
-import { findLinks, stretchCandidates, dropText, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer } from '../lib/links.js';
+import { findLinks, stretchCandidates, dropText, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer, isWebPage } from '../lib/links.js';
 import { h, icon } from './dom.js';
 import { modKey, imagePasteKey } from '../lib/platform.js';
+import { PTY_SIZE } from '../lib/sessions.js';
 import { paintLinks } from './linkpaint.js';
 import { findBar } from './findbar.js';
 
@@ -63,8 +64,7 @@ function linkProvider(term, id) {
         links.push({ range, text: s, target, decorations: { underline: true, pointerCursor: true },
           activate: async () => {
             const p = target || s, file = onFile && !/^https?:/i.test(p) && !opensInExplorer(p) ? await window.deck.fileAt(p) : null;
-            window.deck.linkOpened(id, p); // a result opened is not missed (#367)
-            const ok = await (file ? onFile(id, file) : code ? window.deck.openInCode(null, s) : window.deck.openPath(p));
+            const ok = await (file ? onFile(id, file) : code && !isWebPage(p) ? window.deck.openInCode(null, s) : window.deck.openPath(p));
             if (!ok && onLinkFail) onLinkFail(p);
           } });
       }
@@ -138,6 +138,19 @@ export function setLinkFailHandler(fn) { onLinkFail = fn; }
 let onFile = null;
 export function setFileOpener(fn) { onFile = fn; }
 
+// A link Claude Code prints as an OSC 8 hyperlink (#3139): xterm's own handler asks, then opens a
+// blank window the app's window guard refuses, so the click does nothing. Ask the same words,
+// then open it through the app like a plain-text link.
+let linkAsk = uri => confirm(`Do you want to navigate to ${uri}?\n\nWARNING: This link could potentially be dangerous`);
+export const setLinkAskForSmoke = fn => { const prev = linkAsk; linkAsk = fn; return prev; };
+export async function openMarkedLink(uri) {
+  if (!linkAsk(uri)) return false;
+  const ok = await window.deck.openPath(uri).catch(() => false);
+  if (!ok && onLinkFail) onLinkFail(uri);
+  return !!ok;
+}
+export function linkHandlerSet(id) { const t = terms.get(id); return !!(t && t.term.options.linkHandler && t.term.options.linkHandler.activate); }
+
 const terms = new Map(); // id -> { term, fit, host, opened, pending, exited }
 let keyFilter = () => true;
 
@@ -149,6 +162,7 @@ function entry(id) {
   const term = new Terminal({
     fontFamily: '"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",Menlo,monospace', fontSize: 13, lineHeight: 1.15,
     cursorBlink: true, scrollback: 8000, theme: THEME, allowTransparency: true, macOptionIsMeta: false, allowProposedApi: true,
+    linkHandler: { activate: (_e, uri) => { openMarkedLink(uri); } },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -184,6 +198,37 @@ function entry(id) {
   // Claude Code's full-screen view runs on the alternate screen, which has no scrollback, yet
   // the normal screen's scroll bar could stay there doing nothing (#1389): hidden while it is up.
   term.buffer.onBufferChange(b => host.classList.toggle('altscreen', b.type === 'alternate'));
+  // Copy on select (#3102): a selection made with the mouse goes to the clipboard on release, as in
+  // Windows Terminal. Capture phase, so it runs even when xterm stops the event; after the current
+  // task, so xterm has finished the selection. Only a mouse release copies, never the find bar's
+  // selection. Ctrl+C is not touched: it still goes to the session. Only a press that began on
+  // the terminal counts (not the find bar's buttons, which sit in the same host), and its release
+  // counts wherever it lands, so a drag let go outside the pane still copies. Left button only, and
+  // only when this press changed the selection: while Claude Code has the mouse, xterm keeps an old
+  // selection through a plain click, which must not be copied again over the owner's clipboard.
+  let pressed = false, changed = false;
+  term.onSelectionChange(() => { if (pressed) changed = true; });
+  host.addEventListener('mousedown', e => { pressed = e.button === 0 && !!(term.element && term.element.contains(e.target)); changed = false; }, true);
+  const onUp = () => {
+    if (!pressed) return;
+    pressed = false;
+    if (!changed) return;
+    setTimeout(() => {
+      const text = term.hasSelection() ? term.getSelection() : '';
+      if (text.trim()) Promise.resolve(window.deck.copyText(text)).catch(() => { /* a failed copy is ignored */ });
+    }, 0);
+  };
+  window.addEventListener('mouseup', onUp, true);
+  // OSC 52 (#3102): Claude Code's full-screen view copies its own drag selection with this. A write
+  // reaches the clipboard (capped at 1 MB); a read request (`?`) is refused and never answered.
+  term.parser.registerOscHandler(52, data => {
+    const p = String(data).slice(String(data).indexOf(';') + 1);
+    if (!p || p === '?') return true;
+    let text = '';
+    try { text = new TextDecoder().decode(Uint8Array.from(atob(p), c => c.charCodeAt(0))); } catch { return true; }
+    if (text) Promise.resolve(window.deck.copyText(text.slice(0, 1048576))).catch(() => { /* ignored */ });
+    return true;
+  });
   // Files and folders dropped from Explorer type their full paths at the prompt.
   // While files are over the pane it shows a drop target (#216); entering and leaving
   // xterm's child elements is counted so it does not flicker.
@@ -202,31 +247,59 @@ function entry(id) {
     const text = dropText([...e.dataTransfer.files].map(f => window.deck.pathForFile(f)));
     if (text) { window.deck.write(id, text); term.focus(); }
   });
-  // Links stand out in the link colour as soon as they are printed (#348).
-  const paint = paintLinks(term, links, () => host.isConnected && host.offsetParent !== null);
-  t = { term, fit, host, links, paint, find, opened: false, pending: '', exited: false };
+  // Links stand out in the link colour as soon as they are printed (#348); not while parked.
+  const paint = paintLinks(term, links, () => host.isConnected && host.offsetParent !== null && host.parentNode !== holder);
+  t = { term, fit, host, links, paint, find, opened: false, pending: '', exited: false, off: () => window.removeEventListener('mouseup', onUp, true) };
   terms.set(id, t);
   new ResizeObserver(() => refit(id)).observe(host);
   return t;
 }
 
+// A parked terminal is never fitted: that would resize its pty to the holder.
 export function refit(id) {
   const t = terms.get(id);
-  if (!t || !t.opened || !t.host.isConnected || t.host.clientWidth < 20) return;
+  if (!t || !t.opened || !t.host.isConnected || t.host.parentNode === holder || t.host.clientWidth < 20) return;
   try { t.fit.fit(); window.deck.resize(id, t.term.cols, t.term.rows); } catch { /* not laid out yet */ }
 }
 
-// Put a session's terminal into a pane body. Opening is deferred until the
-// host is in the document, because xterm measures fonts when it opens.
+// A pane never shown yet (#2928), such as a lead the CTO opened, is opened at once in a hidden
+// holder and its output written into it as it comes. Its output used to wait unparsed, all of
+// it, and was parsed in one go when the pane was first shown: a stall of tens of milliseconds
+// per pane, and memory that grew with every pane printing unseen. The holder is off screen and
+// invisible but laid out (display: none breaks xterm's measuring), takes no clicks and no focus,
+// and is sized for the pty's 120 x 30; the terminal is that size until a pane shows it.
+let holder = null;
+function park(id, t) {
+  if (!holder) {
+    holder = document.createElement('div');
+    holder.className = 'termholder';
+    holder.setAttribute('aria-hidden', 'true');
+    Object.assign(holder.style, { position: 'fixed', left: '-20000px', top: '0', width: '1000px', height: '500px', visibility: 'hidden', pointerEvents: 'none', overflow: 'hidden' });
+    document.body.append(holder);
+  }
+  t.term.resize(PTY_SIZE.cols, PTY_SIZE.rows);
+  holder.append(t.host);
+  openTerm(id, t);
+}
+
+// Put a session's terminal into a pane body (from the holder, if it was parked there). Opening
+// waits until the host is in the document, because xterm measures fonts when it opens.
 // The terminal font is a web font, so opening also waits until it has loaded; a terminal
 // opened earlier measures the fallback font and spaces its letters out.
 const fontReady = document.fonts.load('13px "JetBrains Mono"').catch(() => {});
 export function mount(id, parent) {
   const t = entry(id);
   parent.append(t.host);
+  openTerm(id, t);
+  requestAnimationFrame(() => { refit(id); t.paint.refresh(); });
+  return t;
+}
+
+function openTerm(id, t) {
   if (!t.opened && !t.opening) {
     t.opening = true;
     fontReady.then(() => {
+      if (terms.get(id) !== t) return; // disposed while the font loaded
       t.term.open(t.host);
       t.opened = true;
       // An item picked from Windows clipboard history (Win+V) arrives as an "insert from
@@ -248,23 +321,27 @@ export function mount(id, parent) {
       requestAnimationFrame(() => refit(id));
     });
   }
-  requestAnimationFrame(() => { refit(id); t.paint.refresh(); });
-  return t;
 }
 
+// Output before the terminal opens (the font still loading) waits in pending; a terminal no
+// pane has shown yet is parked and opened at once.
 export function write(id, data) {
   const t = entry(id);
-  if (t.opened) t.term.write(data); else t.pending += data;
+  if (t.opened) { t.term.write(data); return; }
+  t.pending += data;
+  if (!t.host.isConnected) park(id, t);
 }
 
-// The rows on a session's screen as text (#152), to read a prompt it stopped on. A terminal
-// never shown yet holds its output unparsed, so a scratch terminal draws it first.
+// The rows on a session's screen as text (#152), to read a prompt it stopped on. A parked
+// terminal's rows are read once what was written to it is parsed; before the font has loaded,
+// its output is still unparsed, so a scratch terminal draws it first.
 // With bright, faint text (Claude Code's placeholder in an empty input box) reads as spaces.
 const brightText = (line, cols) => { let s = ''; for (let x = 0; x < cols; x++) { const c = line.getCell(x); s += !c || c.isDim() ? ' ' : c.getChars() || (c.getWidth() ? ' ' : ''); } return s.replace(/\s+$/, ''); };
 const rowsOf = (term, bright) => { const b = term.buffer.active, out = []; for (let i = b.baseY; i < b.baseY + term.rows; i++) { const l = b.getLine(i); out.push(!l ? '' : bright ? brightText(l, term.cols) : l.translateToString(true)); } return out; };
 export function screen(id, bright = false) {
   const t = terms.get(id);
   if (!t) return Promise.resolve([]);
+  if (t.opened && t.host.parentNode === holder) return new Promise(done => t.term.write('', () => done(rowsOf(t.term, bright))));
   if (t.opened) return Promise.resolve(rowsOf(t.term, bright));
   const tmp = new Terminal({ cols: t.term.cols, rows: t.term.rows, scrollback: 200 });
   return new Promise(done => tmp.write(t.pending.slice(-200000), () => { const rows = rowsOf(tmp, bright); tmp.dispose(); done(rows); }));
@@ -333,6 +410,7 @@ export function jumpToLastPrompt(id) {
 // The pane's find bar (#360), from its header button or the smoke run.
 export function openFind(id) { const t = terms.get(id); if (t && t.opened) t.find.open(); }
 export function findState(id) { const t = terms.get(id); return t ? { open: t.find.isOpen(), el: t.find.el } : null; }
+export function termOf(id) { const t = terms.get(id); return t && t.opened ? t.term : null; } // for the smoke run (#3102)
 export function focus(id) { const t = terms.get(id); if (t && t.opened) t.term.focus(); }
 // The pane that has the keyboard, if any.
 export function focusedId() {
@@ -362,5 +440,5 @@ export function markExited(id, v, shell = false) { const t = entry(id); t.exited
 // Claude has exited but the pane's shell still takes typing (#353).
 export function shellLive(id) { return !!(terms.get(id) && terms.get(id).shell); }
 export function isExited(id) { return !!(terms.get(id) && terms.get(id).exited); }
-export function dispose(id) { const t = terms.get(id); if (t) { t.term.dispose(); t.host.remove(); terms.delete(id); } }
+export function dispose(id) { const t = terms.get(id); if (t) { t.off(); t.term.dispose(); t.host.remove(); terms.delete(id); } }
 export function reset(id) { const t = terms.get(id); if (t && t.opened) t.term.reset(); if (t) t.exited = false; }

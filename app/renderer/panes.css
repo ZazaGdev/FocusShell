@@ -16,3 +16,9 @@
 #stage .pane .ph{background:color-mix(in srgb,var(--pc,var(--line2)) 16%,var(--chrome));border-bottom:1px solid color-mix(in srgb,var(--pc,var(--line2)) 35%,var(--line))}
 #stage .pane.focus .ph{background:color-mix(in srgb,var(--pc,var(--line2)) 22%,var(--chrome))}
 #stage .pane .ph .pn{color:color-mix(in srgb,var(--pc,var(--text2)) 70%,#fff)}
+/* One project's leads side by side (#3041): each lead is its own box, edged like a pane, on the
+   same well, so it is plain where one lead ends and the next begins. The lead the header acts on
+   is outlined in the project's colour. */
+#stage .body.leadsplit{padding:4px;background:var(--well)}
+#stage .leadcell{border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;background:var(--pane)}
+#stage .leadcell.on{border-color:var(--pc,var(--line2));box-shadow:0 0 0 1px color-mix(in srgb,var(--pc,var(--line2)) 40%,transparent)}

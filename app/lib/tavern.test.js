@@ -87,12 +87,39 @@ test('tavern: a subagent transcript written in the last minute is a helper of th
   const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tav-')), cwd = 'D:\Side\Habitly';
   const sub = pathx.join(root, encodeProjectDir(cwd), 'conv1', 'subagents');
   fsx.mkdirSync(sub, { recursive: true });
+  fsx.writeFileSync(pathx.join(root, encodeProjectDir(cwd), 'conv1.jsonl'), '{}');
   fsx.writeFileSync(pathx.join(sub, 'agent-a.jsonl'), '{}');
   fsx.writeFileSync(pathx.join(sub, 'agent-old.jsonl'), '{}');
   const old = (Date.now() - 5 * 60000) / 1000; fsx.utimesSync(pathx.join(sub, 'agent-old.jsonl'), old, old);
   const got = activeHelpers([{ id: 'Habitly', cwd, startedAt: 0 }, { id: 'Habitly-2', cwd, startedAt: 0 }, { id: 'X', cwd: 'D:\none', startedAt: 0 }], root);
   assert.deepEqual(got, [{ id: 'conv1/agent-a', parent: 'Habitly', project: undefined }]);
   assert.deepEqual(activeHelpers([{ id: 'Habitly', cwd, startedAt: Date.now() + 60000 }], root), [], 'not from before the pane started');
+  fsx.rmSync(root, { recursive: true, force: true });
+});
+test('tavern: helpers are looked for only in conversations written to since the pane started (#2928)', () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tav-')), dir = pathx.join(root, encodeProjectDir('D:\\Side\\Habitly'));
+  for (const conv of ['old', 'live']) {
+    fsx.mkdirSync(pathx.join(dir, conv, 'subagents'), { recursive: true });
+    fsx.writeFileSync(pathx.join(dir, `${conv}.jsonl`), '{}');
+    fsx.writeFileSync(pathx.join(dir, conv, 'subagents', 'agent-a.jsonl'), '{}');
+  }
+  // The old conversation was last written two hours ago, before the pane started an hour ago;
+  // a helper log in it written just now is still not looked at.
+  const twoHours = (Date.now() - 2 * 3600e3) / 1000; fsx.utimesSync(pathx.join(dir, 'old.jsonl'), twoHours, twoHours);
+  const got = activeHelpers([{ id: 'Habitly', cwd: 'D:\\Side\\Habitly', startedAt: Date.now() - 3600e3 }], root);
+  assert.deepEqual(got, [{ id: 'live/agent-a', parent: 'Habitly', project: undefined }]);
+  fsx.rmSync(root, { recursive: true, force: true });
+});
+test('tavern: a pane reopened later does not hide the helpers of an older pane in the same folder (#2928)', () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tav-')), cwd = 'D:\\Side\\Habitly', dir = pathx.join(root, encodeProjectDir(cwd));
+  fsx.mkdirSync(pathx.join(dir, 'bg', 'subagents'), { recursive: true });
+  fsx.writeFileSync(pathx.join(dir, 'bg.jsonl'), '{}');
+  fsx.writeFileSync(pathx.join(dir, 'bg', 'subagents', 'agent-a.jsonl'), '{}');
+  // The older pane's conversation went quiet 30 minutes ago while its helper still writes;
+  // the pane listed first was reopened 10 minutes ago.
+  const half = (Date.now() - 30 * 60000) / 1000; fsx.utimesSync(pathx.join(dir, 'bg.jsonl'), half, half);
+  const got = activeHelpers([{ id: 'A', cwd, startedAt: Date.now() - 10 * 60000 }, { id: 'B', cwd, startedAt: Date.now() - 60 * 60000 }], root);
+  assert.deepEqual(got, [{ id: 'bg/agent-a', parent: 'A', project: undefined }]);
   fsx.rmSync(root, { recursive: true, force: true });
 });
 
@@ -112,8 +139,8 @@ test('tavern: each guest is a robot: the CTO and PM their own, a group CTO the m
   assert.equal(a.find(x => x.id === 'Clipper').robot, robotFor('lead', 'Clipper', 'Clipper'));
 });
 
-import { sessionBoard } from './tavern/tokens.js';
-test('tavern: the token board counts each live pane\'s own conversation, replies once each, its helpers apart (#246)', () => {
+import { sessionBoard, usageTotals } from './tavern/tokens.js';
+test('tavern: the token board counts each live pane\'s own conversation, replies once each, its helpers apart (#246)', async () => {
   const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd));
   fsx.mkdirSync(pathx.join(dir, 'c2', 'subagents'), { recursive: true });
   const line = (id, n) => JSON.stringify({ type: 'assistant', requestId: id, message: { id, usage: { input_tokens: n, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 10 } } });
@@ -121,8 +148,119 @@ test('tavern: the token board counts each live pane\'s own conversation, replies
   const old = new Date(Date.now() - 3600e3); fsx.utimesSync(pathx.join(dir, 'c1.jsonl'), old, old);
   fsx.writeFileSync(pathx.join(dir, 'c2.jsonl'), [line('b', 5), line('b', 5), line('c', 7)].join('\n'));
   fsx.writeFileSync(pathx.join(dir, 'c2', 'subagents', 'agent-1.jsonl'), line('d', 3));
-  const rows = sessionBoard(root, [{ name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }]);
+  const rows = await sessionBoard(root, [{ name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }]);
   assert.deepEqual(rows.map(r => [r.who, r.fresh, r.cacheRead]), [['lead-Proj', 12, 20], ["lead-Proj's helpers (1)", 3, 10]]);
+  assert.deepEqual(Object.keys(rows[0]), ['id', 'who', 'kind', 'log', 'fresh', 'input', 'output', 'cacheWrite', 'cacheRead', 'replies'], 'the rows keep their shape');
+});
+test('tavern: the token board reads only a helper log\'s new lines, a reply in two helper logs once (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), sub = pathx.join(dir, 'c1', 'subagents');
+  fsx.mkdirSync(sub, { recursive: true });
+  const line = (id, n) => JSON.stringify({ type: 'assistant', requestId: id, message: { id, usage: { input_tokens: n, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fsx.writeFileSync(pathx.join(dir, 'c1.jsonl'), line('a', 1));
+  const done = pathx.join(sub, 'agent-1.jsonl'), live = pathx.join(sub, 'agent-2.jsonl');
+  fsx.writeFileSync(done, line('b', 10) + '\n'); fsx.writeFileSync(live, line('c', 100) + '\n');
+  const pane = [{ name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }], helpers = async () => (await sessionBoard(root, pane)).find(r => r.kind === 'helpers').fresh;
+  assert.equal(await helpers(), 110);
+  // The finished helper's log, its bytes changed but not its size: it is not read again.
+  fsx.writeFileSync(done, line('b', 99) + '\n');
+  // The running helper's log grows: only its new line is read.
+  fsx.appendFileSync(live, line('d', 1000) + '\n');
+  assert.equal(await helpers(), 1110);
+  // A forked helper's log starts with a copy of a reply already counted: once across the logs.
+  fsx.writeFileSync(pathx.join(sub, 'agent-3.jsonl'), [line('c', 100), line('e', 5)].join('\n') + '\n');
+  assert.equal(await helpers(), 1115);
+  // A helper log gone: its replies leave the sum, the copy in the forked log now counts.
+  fsx.rmSync(live);
+  assert.equal(await helpers(), 115);
+  // A helper log rewritten shorter: it is read again, and the helpers summed again from the start.
+  fsx.writeFileSync(done, line('b', 1) + '\n');
+  assert.equal(await helpers(), 106);
+});
+test('tavern: a second token board call counts only the replies appended since, each once (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), log = pathx.join(dir, 'c1.jsonl');
+  fsx.mkdirSync(dir, { recursive: true });
+  const line = (id, n) => JSON.stringify({ type: 'assistant', requestId: id, message: { id, usage: { input_tokens: n, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }) + '\n';
+  const user = JSON.stringify({ type: 'user', message: { content: 'made-up words' } }) + '\n';
+  const pane = [{ id: 'p', name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }], own = async () => (await sessionBoard(root, pane))[0];
+  fsx.writeFileSync(log, line('a', 10) + user + line('a', 10));
+  assert.deepEqual([(await own()).input, (await own()).replies], [10, 1], 'a reply logged on two lines counts once');
+  // The first line rewritten in place, same size, and two lines added: only the new ones are read,
+  // and the repeat of reply a among them is still not counted again.
+  const was = fsx.readFileSync(log, 'utf8');
+  fsx.writeFileSync(log, line('a', 90) + was.slice(line('a', 90).length) + line('a', 10) + line('b', 5));
+  const t = await own();
+  assert.deepEqual([t.input, t.output, t.replies, t.fresh], [15, 2, 2, 17]);
+  // A line still being written waits until it is whole.
+  const half = line('c', 7);
+  fsx.appendFileSync(log, half.slice(0, 30));
+  assert.equal((await own()).replies, 2);
+  fsx.appendFileSync(log, half.slice(30));
+  assert.deepEqual([(await own()).input, (await own()).replies], [22, 3]);
+});
+test('tavern: a token log that shrank is read again from the start (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), log = pathx.join(dir, 'c1.jsonl');
+  fsx.mkdirSync(dir, { recursive: true });
+  const line = (id, n) => JSON.stringify({ type: 'assistant', requestId: id, message: { id, usage: { input_tokens: n, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }) + '\n';
+  const pane = [{ id: 'p', name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }], own = async () => (await sessionBoard(root, pane))[0];
+  fsx.writeFileSync(log, line('a', 10) + line('b', 20) + line('c', 30));
+  assert.equal((await own()).input, 60);
+  fsx.writeFileSync(log, line('a', 4));
+  assert.deepEqual([(await own()).input, (await own()).replies], [4, 1]);
+});
+test('tavern: a token log bigger than one read slice is counted whole, lines split across slices too (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), log = pathx.join(dir, 'c1.jsonl');
+  fsx.mkdirSync(dir, { recursive: true });
+  const pad = 'x'.repeat(3000), long = 'x'.repeat(5 * 1048576);
+  const line = i => JSON.stringify({ type: 'assistant', requestId: `r${i}`, message: { id: `m${i}`, content: i === 1500 ? long : pad, usage: { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }) + '\n';
+  const n = 3000; // about 14 MB, one line of them longer than a whole 4 MB slice
+  fsx.writeFileSync(log, Array.from({ length: n }, (_, i) => line(i)).join(''));
+  const rows = await sessionBoard(root, [{ id: 'p', name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }]);
+  assert.deepEqual([rows[0].input, rows[0].replies], [n, n]);
+});
+test('tavern: two token board calls at once count each reply once (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), log = pathx.join(dir, 'c1.jsonl');
+  fsx.mkdirSync(dir, { recursive: true });
+  const pad = 'x'.repeat(3000), usage = { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  const line = i => JSON.stringify({ type: 'assistant', requestId: `r${i}`, message: { id: `m${i}`, content: pad, usage } }) + '\n';
+  const n = 3000; // about 9 MB, so each call takes several reads
+  // The last reply has no message id, so only the calls taking turns keep it from counting twice.
+  fsx.writeFileSync(log, Array.from({ length: n }, (_, i) => line(i)).join('') + JSON.stringify({ type: 'assistant', message: { usage } }) + '\n');
+  const pane = [{ id: 'p', name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }];
+  const [a, b] = await Promise.all([sessionBoard(root, pane), sessionBoard(root, pane)]);
+  assert.deepEqual([a[0].replies, b[0].replies], [n + 1, n + 1]);
+});
+test('tavern: a token log of characters of more than one byte, appended in random byte cuts, totals as one whole read (#2928)', async () => {
+  const root = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'tok-')), cwd = 'D:\\Work\\Proj', dir = pathx.join(root, encodeProjectDir(cwd)), log = pathx.join(dir, 'c1.jsonl');
+  fsx.mkdirSync(dir, { recursive: true });
+  const words = ['w\u00f6rd', '\u10d2\u10d0\u10db\u10d0\u10e0\u10ef\u10dd\u10d1\u10d0', '\u{1F600}\u{1F389}', '\u3053\u3093\u306b\u3061\u306f', 'plain'];
+  let seed = 5, compared = 0;
+  // The generator's high bits: its low ones repeat in short cycles.
+  const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed >>> 16) % n; };
+  const pane = [{ id: 'p', name: 'lead-Proj', cwd, startedAt: Date.now() - 60e3 }];
+  let all = Buffer.alloc(0), pending = Buffer.alloc(0);
+  for (let step = 0; step < 200; step++) {
+    while (pending.length < 2000) {
+      const text = Array.from({ length: 1 + rnd(20) }, () => words[rnd(words.length)]).join(' ');
+      // Replies logged once per content block: an id may come again on a later line. A reply with
+      // no id counts every time, so a line read twice would show.
+      const id = `m${rnd(400)}`, usage = { input_tokens: 1 + rnd(9), output_tokens: rnd(50), cache_creation_input_tokens: rnd(3), cache_read_input_tokens: rnd(100) };
+      const r = rnd(6), line = r < 3 ? JSON.stringify({ type: 'assistant', requestId: `r${id}`, message: { id, content: text, usage } })
+        : r < 4 ? JSON.stringify({ type: 'assistant', message: { content: text, usage } })
+        : JSON.stringify({ type: 'user', message: { content: text } });
+      pending = Buffer.concat([pending, Buffer.from(line + '\n')]);
+    }
+    const n = 1 + rnd(rnd(4) === 0 ? 6000 : 400), piece = pending.subarray(0, n);
+    pending = pending.subarray(n);
+    fsx.appendFileSync(log, piece);
+    all = Buffer.concat([all, piece]);
+    const row = (await sessionBoard(root, pane))[0];
+    if (all[all.length - 1] !== 10) continue; // a line still being written waits
+    const { fresh, input, output, cacheWrite, cacheRead, replies } = row;
+    assert.deepEqual({ fresh, input, output, cacheWrite, cacheRead, replies }, usageTotals(all.toString('utf8')), `step ${step}`);
+    compared++;
+  }
+  assert.ok(compared > 30, `compared ${compared} times`);
+  fsx.rmSync(root, { recursive: true, force: true });
 });
 
 import { fiveHour } from './tavern/usage.js';

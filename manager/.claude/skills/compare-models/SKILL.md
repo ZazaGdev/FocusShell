@@ -124,8 +124,10 @@ once more and tell the user. When all are listed:
 
 1. Run `date`.
 2. `SendMessage` to each lead in turn, with nothing in between: `TASK #1: ` followed by
-   the prompt the user approved, character for character. Copy it from the block you
-   showed; never retype it.
+   the prompt the user approved, character for character, then a blank line and
+   `Comparison run: write it all yourself, start no builder agent.` Copy the prompt from the
+   block you showed; never retype it. That last line keeps each lead from handing the coding
+   to a builder on another model (#2780), which would compare the builder, not the lead.
 3. Run `date` again. Mark each board line `~` (`deck mark <task>-<model> 1 working`). Tell the user in one line: sent to both, the
    two times.
 

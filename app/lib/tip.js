@@ -1,9 +1,8 @@
 // The app's one tooltip (#1035): where it goes and how its text splits. renderer/tip.js shows it.
 
-export const DELAY = 300;
-// Moving straight from one tooltip to the next within this long shows the next at once,
-// so a row of icon buttons does not blink.
-export const CHAIN = 400;
+// Every tooltip waits this long after the pointer rests, also straight after another one
+// (#2987): no shortcut that shows the next at once.
+export const DELAY = 2000;
 export const GAP = 9;
 export const MARGIN = 6;
 

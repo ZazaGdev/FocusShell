@@ -190,21 +190,29 @@ open line with `deck add <Project> '<title>'` (`<who>` is `user`) and do not sen
 When the user asks "what's next for <Project>", read its task file and suggest from the
 open lines: those in the current version first (`> Version: <name>` matching the
 `> Version <name>: current` line at the top, else the first version not marked done), then
-highest `> Priority:` first (1 is highest). A version or priority never sends anything on
-its own.
+highest `> Priority:` first (1 is highest). Leave out open lines whose `> Start: <YYYY-MM-DD>`
+date is after today; name them as held until that date. A version or priority never sends
+anything on its own.
 
 ## Reports from leads
 
 Leads message you in one of three shapes:
 
 ```
-DONE #<n> | <result> | effort: <level> | tests: pass|fail|none | commit: <hash or none>
+DONE #<n> | <result> | effort: <level> | helper: <model> <effort>|none | tests: pass|fail|none | commit: <hash or none>
 NEEDS YOU #<n> | <question> | options: <a>, <b> | suggest: <a>
 BLOCKED #<n> | <what stopped it> | unblock: <what would>
 ```
 
 `effort:` is the level the lead ran the task at (low, medium, high, xhigh or max). Each lead
 picks it from its own guide; name one in the brief only when the user asks for a level.
+`helper:` is the builder agent that wrote the code for the lead's plan, such as `sonnet medium`,
+or `none` when the lead did a small task itself (#2780). The lead picks it from its own guide;
+name one in the brief (`Helper:`) only when the user names a model or level for the coding. A
+`WORKING #<n> | builder (...) building ...` line means the lead handed off and waits on it.
+A lead sends one WORKING line per stretch of background work and no progress lines after it,
+so a lead whose last line is WORKING is still on that task until its DONE, NEEDS YOU, BLOCKED
+or HALF arrives.
 
 A NEEDS YOU about a refused action ends with `| words: <exact words>`: what the user would
 type in that lead's pane to allow it (the `cto-permissions` skill).
@@ -263,8 +271,9 @@ recording) or `RECORDING TALK:` (a recording to talk about) comes to the main `c
 
 Load the skill before acting on any of these:
 
-- "status?", `STATUS REFRESH:`, `CATCH UP <Project>:`, "pick up the work", "safe to
-  restart?", "wrap up the day" (and `/team-status`, `/pick-up`, `/wrap-up`): `cto-routines`.
+- "status?", `STATUS REFRESH:`, `CATCH UP <Project>:`, `CONTEXT FULL:`, `NEW DAY:`, `REOPENED`
+  and `HALF` lines, "pick up the work", "safe to restart?", "wrap up the day" (and `/team-status`,
+  `/pick-up`, `/wrap-up`): `cto-routines`.
 - Opening a pane (also on a named model), extra leads on one project (up to five), closing a pane, a
   lead that has not connected, "add <folder> to FocusShell": `cto-panes`.
 - A lead's refused action (a NEEDS YOU with `| words:`), a `WORDS <Project> #<n>:` line,

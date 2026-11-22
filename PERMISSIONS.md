@@ -49,7 +49,7 @@ registers for messaging; it changes nothing else in the environment.
 All panes use the same mode on purpose: Claude Code can hold a message between two sessions in
 different permission classes until you approve it, and the CTO and leads talk by message.
 
-FocusShell's own small background turns (the AI helper, card summaries, catch-up, Maybe missed,
+FocusShell's own small background turns (the AI helper, card summaries, catch-up,
 the recorder's card extraction) run `claude -p` with no tools, or with only the Read tool for
 one folder, and without your settings files (`--setting-sources ""`).
 

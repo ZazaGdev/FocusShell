@@ -41,7 +41,7 @@ export function somedayAdd(h, input, add) {
   return h('label', { class: 'sdcheck', title: 'Add to Someday: good to do, not now' }, box, 'Someday');
 }
 // The labelled Done button on an open to-do row (#168).
-export const doneButton = (h, onclick) => h('button', { class: 'btn medone', title: 'Mark this to-do done', onclick }, 'Done');
+export const doneButton = (h, onclick) => h('button', { class: 'btn medone', onclick }, 'Done');
 // A Self item's time and repeat (#198): a date, a time, and repeat every N days or weeks.
 // due and rep are the item's, if any; read() gives what setSchedule takes.
 export function whenFields(h, due, rep) {
@@ -144,6 +144,8 @@ export function renderDash(c) {
   const scrolls = [...root.querySelectorAll('.pp > .pb')].map(b => [(b.parentElement.className.match(/\bpp-(\w+)/) || [])[1], b.scrollTop, b.scrollLeft]);
   // Each board column scrolls on its own too, so closing a card far down keeps its place (#1291).
   const colScrolls = [...root.querySelectorAll('.bcol[data-col] > .bcl')].map(b => [b.parentElement.dataset.col, b.scrollTop]);
+  // By project's columns too: with Show done on they hold every done item (#2988).
+  const projScrolls = [...root.querySelectorAll('.bcol[data-project] > .bcl')].map(b => [b.parentElement.dataset.project, b.scrollTop]);
   root.replaceChildren(dash);
   for (const [area, top, left] of scrolls) {
     const b = dash.querySelector(`.pp-${area} > .pb`);
@@ -151,6 +153,10 @@ export function renderDash(c) {
   }
   for (const [key, top] of colScrolls) {
     const b = dash.querySelector(`.bcol[data-col="${CSS.escape(key)}"] > .bcl`);
+    if (b) b.scrollTop = top;
+  }
+  for (const [p, top] of projScrolls) {
+    const b = dash.querySelector(`.bcol[data-project="${CSS.escape(p)}"] > .bcl`);
     if (b) b.scrollTop = top;
   }
 

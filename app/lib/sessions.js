@@ -5,6 +5,8 @@
 // cmd resolves this through PATHEXT, so a native install's claude.exe and npm's claude.cmd
 // both start (#390).
 export const CLAUDE = 'claude';
+// A session's pty starts at this size; a pane not shown yet keeps its terminal at it (#2928).
+export const PTY_SIZE = { cols: 120, rows: 30 };
 
 const resumed = (args, resumeId) => (resumeId && /^[0-9a-f-]{36}$/i.test(resumeId) ? [...args, '--resume', resumeId] : args);
 
@@ -118,8 +120,13 @@ export const owns = (sessions, id, s) => sessions.get(id) === s;
 const fill = (template, tokens) => Object.entries(tokens).reduce((s, [k, v]) => s.split(`{{${k}}}`).join(v), template);
 
 // deckFile is the data folder's deck command (#225), quoted so Git Bash keeps its backslashes.
-export function renderLeadPrompt(template, project, taskFile, test, manager = 'cto', deckFile = 'deck.mjs') {
+// build is the project's build setting (#3267): 'light' keeps the Light build block between the
+// two marker lines, anything else drops the whole block; the marker lines never reach the prompt.
+export function renderLeadPrompt(template, project, taskFile, test, manager = 'cto', deckFile = 'deck.mjs', build = '') {
   const t = test || "the project's usual test command, if it has one";
+  template = build === 'light'
+    ? template.replace(/<!-- \/?light build -->\r?\n/g, '')
+    : template.replace(/(\r?\n)?<!-- light build -->[\s\S]*?<!-- \/light build -->\r?\n/, '');
   return fill(template, { PROJECT: project, TASKFILE: taskFile, TEST: t, MANAGER: manager, DECKCMD: `'${deckFile}'` });
 }
 

@@ -38,6 +38,11 @@ when it was closed, written by `deck mark ... done` and removed when it is reope
 FocusShell shows both dates on the card as a small history. A `  > Waiting: <YYYY-MM-DD HH:MM>`
 line is when an item was marked needs you, written by `deck mark ... needs` and removed when
 its mark moves on; Waiting on you shows that time beside the card's number.
+A `  > Start: <YYYY-MM-DD>` line is the day the CTO may hand the task out: "pick up the work"
+holds it until then. Write it with `deck add ... --start <date>` or `deck start <Board> <n>
+<date>` (`-` clears it), never by hand. When the owner says to do a task tomorrow or on a
+given day, set it this way instead of writing "hand out on ..." into a detail. It is not
+Me's Due line: no reminder comes from it.
 A `  > Tags: Research, ...` line (comma separated) tags an item; tags show as badges and
 boards filter by them. The user keeps the list of tags in FocusShell's Settings; keep a
 Tags line when you edit the task.

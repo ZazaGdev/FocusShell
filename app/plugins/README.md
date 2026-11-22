@@ -3,13 +3,20 @@
 A plugin is a built-in feature in its own folder, `app/plugins/<id>/`, switched on and off in
 Settings. Spec: `docs/superpowers/specs/2026-10-16-plugin-system-design.md`.
 
+Plugins have no screen of their own for now (#2919): the Plugins title bar button is hidden and
+nothing in the UI says "plugin". A plugin shows as a feature of its own: its button (and the arrow
+menu it may add) sits where Plugins was, and Settings gives it a card named for it. The Plugins
+screen's code (`openPlugins` in `renderer/plugins.js`) is kept, so it can come back.
+
 ## The folder
 
 - `manifest.js`: plain data, `export default { id, name, version, api: 1, description,
   button: { icon, title, labels }, shortcut, uses, settings }`. `icon` is a name from
-  `renderer/dom.js`. `labels` (optional) names the Plugins screen's button for each button state
+  `renderer/dom.js`. `labels` (optional) names the button of the hidden Plugins screen (#2919) for each button state
   (`idle`, `active`, `busy`, `attention`); without it the button says Start. `uses` lists the host services the plugin may call. `smokeOnly: true` keeps
-  a plugin out of normal runs.
+  a plugin out of normal runs. `defaultOn: true` (optional) makes it on until the owner switches it
+  off: a saved `on: false` stays off, a saved `on: true` stays on, and an entry saved only for a
+  setting or the shortcut leaves the default.
 - `main.js`: `export function activate(host)`, synchronous, returning `{ deactivate }`.
 - `renderer.js`: `export function mount(ui)`, returning `{ unmount }`.
 - `lib/`: pure logic with tests, imported by `app/lib/lib.test.js`.
@@ -35,7 +42,8 @@ Smoke and try runs take no global shortcut unless `FOCUSSHELL_PLUGIN_KEYS=1`.
 ## The ui (page side)
 
 `ui.h`, `ui.icon`, `ui.toast`, `ui.fake` (as `host.fake`), `ui.cto(line)` (only with `uses: ['cto']`: types one line into the main CTO's pane as the owner's words, held while the owner writes there; resolves false when the CTO is not running), `ui.button` (`set(state, label)` with `idle`, `active`, `busy`,
-`attention`; `onClick(fn)`), `ui.invoke(name, ...args)` (it resolves to `{ error: message }` when the handler is missing or throws, and a throw also switches the plugin off), `ui.on(event, fn)`, `ui.settings()`, `ui.panel(fn)` (its own section under Start on its Plugins screen: `fn({ close })` returns an element, `close()` closes that screen),
+`attention`; `onClick(fn)`; `menu(fn, tip)` adds a small arrow beside the button, and each time it opens
+`fn()` returns its rows, `[{ label, icon, hint, run }]` with null rows skipped), `ui.invoke(name, ...args)` (it resolves to `{ error: message }` when the handler is missing or throws, and a throw also switches the plugin off), `ui.on(event, fn)`, `ui.settings()`, `ui.shortcut()` (its current shortcut, or null), `ui.openSettings()` (opens Settings at the plugin's own card), `ui.panel(fn)` (its own rows at the end of its Settings card: `fn({ close, opt })` returns an element, and `opt(label, help, control)` is Settings' own row),
 and `ui.kit` (`modal`, `card`, `talkBox`, `confirm`, `splitButton`, `buttonRow`), the shared screen pieces in `renderer/plugin-ui.js`. Build screens from the kit,
 so every plugin looks and behaves alike.
 

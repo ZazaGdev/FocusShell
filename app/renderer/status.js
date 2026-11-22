@@ -1,4 +1,4 @@
-// Status (#383): a button beside Waiting and Missed above each CTO pane. It opens one row per
+// Status (#383): a button beside Waiting above each CTO pane. It opens one row per
 // lead open in the app for that CTO: busy or idle, its current task, and where it stopped, the
 // line the CTO wrote with `deck status`, with when. Once the owner has pressed no key and clicked
 // nowhere in the app for the time picked in Settings (#1699), if a lead started or finished work

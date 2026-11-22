@@ -71,7 +71,8 @@ it with the Read tool when the task needs it.
 
 ## "What can we work on?"
 
-List the open (` `) lines that are not `for owner`, at most seven: those in the current
+List the open (` `) lines that are not `for owner` and have no `> Start: <YYYY-MM-DD>` line
+dated after today (say they wait for that date if asked), at most seven: those in the current
 version first, then by `> Priority:` (1 highest, none last), then oldest first. A task's
 version is a `> Version: <name>` detail line; the current one is the `> Version <name>:
 current` line under the file's heading, else the first version not marked done. Then list

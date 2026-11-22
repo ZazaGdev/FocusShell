@@ -58,6 +58,7 @@ export function checkManifest(m) {
   if (m.api !== API) errs.push(`api ${m.api} is not supported (this FocusShell runs api ${API})`);
   if (m.shortcut != null && !validShortcut(m.shortcut)) errs.push(`shortcut ${m.shortcut} is not a key FocusShell can take`);
   if (!m.button || typeof m.button.icon !== 'string' || typeof m.button.title !== 'string') errs.push('button needs icon and title');
+  if (m.defaultOn != null && typeof m.defaultOn !== 'boolean') errs.push('defaultOn must be true or false');
   if (m.uses != null && !Array.isArray(m.uses)) errs.push('uses must be a list');
   else for (const u of m.uses || []) if (!USES.includes(u)) errs.push(`uses ${u}, which is not a service`);
   const keys = new Set();
@@ -87,14 +88,15 @@ export function cleanPluginSettings(manifest, saved) {
   return out;
 }
 
-// Each plugin's state from Settings' `plugins` entry: on (off unless switched on), its
-// shortcut (the manifest's unless changed; null when cleared) and its cleaned settings.
+// Each plugin's state from Settings' `plugins` entry: on (what Settings saved, else the manifest's
+// defaultOn, else off), its shortcut (the manifest's unless changed; null when cleared) and its
+// cleaned settings.
 export function pluginStates(manifests, saved) {
   const src = obj(saved);
   return Object.fromEntries(manifests.map(m => {
     const p = obj(src[m.id]);
     const shortcut = p.shortcut === null ? null : validShortcut(p.shortcut) ? p.shortcut : (m.shortcut ?? null);
-    return [m.id, { on: p.on === true, shortcut, settings: cleanPluginSettings(m, p.settings) }];
+    return [m.id, { on: typeof p.on === 'boolean' ? p.on : m.defaultOn === true, shortcut, settings: cleanPluginSettings(m, p.settings) }];
   }));
 }
 
@@ -111,14 +113,16 @@ export function shortcutClashes(states) {
   return out;
 }
 
-// Settings' `plugins` entry as saved: { id: { on, shortcut?, settings } }, plain values only.
-// A plugin's own rules (cleanPluginSettings) apply later, when its manifest is known.
+// Settings' `plugins` entry as saved: { id: { on?, shortcut?, settings } }, plain values only.
+// `on` is kept only when it is a boolean: an entry saved for a setting change leaves a plugin
+// that is on by default on. A plugin's own rules (cleanPluginSettings) apply later, when its
+// manifest is known.
 export function normalizePluginsEntry(raw) {
   const out = {};
   for (const [id, v] of Object.entries(obj(raw))) {
     if (!ID_RE.test(id) || !v || typeof v !== 'object') continue;
     const settings = Object.fromEntries(Object.entries(obj(v.settings)).filter(([k, x]) => SET_KEY.test(k) && ['string', 'boolean'].includes(typeof x)));
-    out[id] = { on: v.on === true, ...(v.shortcut === null || validShortcut(v.shortcut) ? { shortcut: v.shortcut } : {}), settings };
+    out[id] = { ...(typeof v.on === 'boolean' ? { on: v.on } : {}), ...(v.shortcut === null || validShortcut(v.shortcut) ? { shortcut: v.shortcut } : {}), settings };
   }
   return out;
 }

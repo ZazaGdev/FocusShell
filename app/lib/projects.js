@@ -23,7 +23,7 @@ export function isTrusted(path, trusted) {
 }
 
 // Every folder under a scan root is a project, named after the folder.
-// projects.json entries add settings (a test command) to a folder, matched by path.
+// projects.json entries add settings (a test command, a build setting) to a folder, matched by path.
 // Folder names are the project names, so names never collide with paths.
 // `real` maps a path to its real folder (links and junctions resolved), so one
 // folder reached through two drive letters is still one project.
@@ -37,20 +37,22 @@ export function mergeProjects(explicit, folders, excludeDir, real = p => p) {
     if (key === norm(excludeDir) || seen.has(key)) continue;
     seen.add(key);
     const e = byPath.get(key);
-    out.push({ name: f.name, path: f.path, test: e ? e.test || '' : '', kind: kindOf(e), model: modelOf(e) });
+    out.push({ name: f.name, path: f.path, test: e ? e.test || '' : '', kind: kindOf(e), model: modelOf(e), build: buildOf(e) });
   }
   // Explicit entries outside the scan roots still count.
   for (const p of explicit) {
     const key = norm(p.path);
     if (seen.has(key) || key === norm(excludeDir)) continue;
     seen.add(key);
-    out.push({ name: p.name, path: p.path, test: p.test || '', kind: kindOf(p), model: modelOf(p) });
+    out.push({ name: p.name, path: p.path, test: p.test || '', kind: kindOf(p), model: modelOf(p), build: buildOf(p) });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 // A project's kind: 'personal' for the owner's private agent (#177), else '' (code).
 const kindOf = e => (e && e.kind === 'personal' ? 'personal' : '');
+// A project's build setting (#3267): 'light' for a small personal project, else '' (full flow).
+const buildOf = e => (e && e.build === 'light' ? 'light' : '');
 // A project's Claude model (#1115), kept in its projects.json entry: one of Claude Code's
 // --model aliases, or '' for Claude's own default.
 export const PROJECT_MODELS = ['', 'fable', 'opus', 'sonnet', 'haiku'];

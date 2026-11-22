@@ -29,6 +29,22 @@ export function whiteboardCards(tasksMd, groups, mgr, skip = [], hidden = {}) {
 
 export const cardCount = groups => groups.reduce((s, g) => s + g.cards.length, 0);
 
+// Balanced columns (#3131). The tracks CSS `repeat(auto-fill, minmax(min, 1fr))` makes at this
+// width (the width of the grid itself, without the body's padding).
+export const columnCount = (width, min = 340, gap = 16) => Math.max(1, Math.floor((width + gap) / (min + gap)));
+
+// For groups in board order with these heights, the column (0-based) each goes into: the one
+// that is lowest so far, the leftmost on a tie. A column grows by the group's height plus the gap.
+export function balanceColumns(heights, n, gap = 16) {
+  const tops = new Array(Math.max(1, n)).fill(0);
+  return heights.map(h => {
+    let c = 0;
+    for (let i = 1; i < tops.length; i++) if (tops[i] < tops[c]) c = i;
+    tops[c] += h + gap;
+    return c;
+  });
+}
+
 // The age beside a card's number, in calendar days on this PC, from "YYYY-MM-DD" or
 // "YYYY-MM-DD HH:MM": "today", "1 day", "3 days", with the time when there is one (#2703):
 // "today 14:32", "1 day, 09:10".

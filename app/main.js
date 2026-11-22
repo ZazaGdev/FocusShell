@@ -10,12 +10,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { parseProjects, trustedPaths, isTrusted, mergeProjects, withProjectModel } from './lib/projects.js';
 import { waitingFor, plainText } from './lib/prompts.js';
+import { isWebPage } from './lib/links.js';
 import { memoryClipboard, keepClipboard, whenTaken, putBack } from './lib/clip.js';
 import { trustQuestion, trustKeys, joined, JOIN_GRACE_MS, TRUST_WATCH_MS } from './lib/joined.js';
 import { moveAcross, SESSION_DIRS } from './lib/localdata.js';
 import { missingTools } from './lib/requirements.js';
 import { nextShared } from './lib/counter.js';
-import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraOf, projectOf, extraLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, CLAUDE, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs, posixSpawn } from './lib/sessions.js';
+import { leadArgs, managerArgs, pmArgs, withModel, cleanEnv, renderLeadPrompt, renderGroupPrompt, extraOf, projectOf, extraLeadNote, submits, working, owns, sessionName, demoArgs, withoutRemote, ownSetupSettings, withSettings, settingsFileOf, classicSettings, CLAUDE, DEMO_NOTE, keepShell, shellTitle, nameProblem, spawnArgs, posixSpawn, PTY_SIZE } from './lib/sessions.js';
 import { isWin, loginPath } from './lib/shell.js';
 import { isAbsPath, onDisk } from './lib/localpath.js';
 import { imagePasteKey } from './lib/platform.js';
@@ -38,8 +39,9 @@ import { registerUpdater } from './updater.js';
 import { updatesOn } from './lib/update.js';
 import { registerProjectPage } from './project-page.js';
 import { registerCodeWeb } from './code-web.js';
-import { registerMissed, noteTyping } from './missed.js';
+import { registerArrived } from './arrived.js';
 import { registerBackground } from './background.js';
+import { registerContext } from './context.js';
 import { registerWorktreeSweep } from './worktree-sweep.js';
 import { leadWorktreeRisk } from './lib/worktrees.js';
 import { registerStatus } from './lead-status.js';
@@ -50,6 +52,8 @@ import { registerPlugins } from './plugins-host.js';
 import { pluginServices } from './plugin-services.js';
 import { update } from './lib/boardio.js';
 import { activeHelpers } from './lib/tavern/helpers.js';
+import { makeOut, addOut, lastOut, wholeOut } from './lib/outbuf.js';
+import { changeOf, caseClash } from './lib/datawatch.js';
 import { sessionBoard, periodBoard, periodStart } from './lib/tavern/tokens.js';
 import { OWN_APP_FILES } from './lib/owntools.js';
 import { tasksDone } from './lib/tavern/tally.js';
@@ -208,11 +212,9 @@ const ME_DATA = SMOKE ? path.join(P.smoke, 'data') : DECK;
 P.ideas = path.join(ME_DATA, 'ideas');
 P.sketches = path.join(ME_DATA, 'sketches');
 P.answerShots = path.join(ME_DATA, 'screenshots', 'answers'); // images pasted into a card's Answer box (#1731)
-const BUFFER_MAX = 400_000;
-
 let win = null;
 let quitting = false;
-const sessions = new Map(); // id -> { pty, buffer, alive }
+const sessions = new Map(); // id -> { pty, out (lib/outbuf.js), alive }
 
 const read = (f, d = '') => { try { return fs.readFileSync(f, 'utf8'); } catch { return d; } };
 // Every board write takes the lock the deck command takes, re-reads and writes whole (#225).
@@ -348,7 +350,7 @@ function sessionSpec(id, resumeId, opts = {}) {
   fs.mkdirSync(P.tasks, { recursive: true });
   const taskFile = path.join(P.tasks, `${name}.md`);
   if (!fs.existsSync(taskFile)) fs.writeFileSync(taskFile, `# ${name} tasks\n`);
-  let prompt = renderLeadPrompt(read(P.leadTemplate), name, taskFile, proj.test, (DEMO ? 'demo-' : '') + managerFor(readGroups(), name), path.join(DECK, 'deck.mjs'));
+  let prompt = renderLeadPrompt(read(P.leadTemplate), name, taskFile, proj.test, (DEMO ? 'demo-' : '') + managerFor(readGroups(), name), path.join(DECK, 'deck.mjs'), proj.build);
   const worktree = extra && opts.worktree ? addWorktree(proj, extra.n) : null;
   if (extra) prompt += extraLeadNote(name, extra.n, worktree && { main: proj.path });
   const lead = extra ? `${name}-${extra.n}` : name;
@@ -429,7 +431,7 @@ const claudeOn = s => s.alive && !s.ended;
 
 function openSession(id, resumeId, opts) {
   const existing = sessions.get(id);
-  if (existing && claudeOn(existing)) return { ok: true, buffer: existing.buffer };
+  if (existing && claudeOn(existing)) return { ok: true, buffer: wholeOut(existing.out) };
   // Claude ended there but its shell lives on: that shell makes way for the new session.
   if (existing && existing.alive) { try { existing.pty.kill(); } catch { /* gone */ } }
   let spec;
@@ -440,30 +442,32 @@ function openSession(id, resumeId, opts) {
   try { cmd = WIN ? spawnArgs(keepShell(spec.args)) : posixSpawn(spec.args, process.env.SHELL); } catch (e) { return { ok: false, error: e.message }; }
   const env = { ...(DEMO ? { ...cleanEnv(process.env), CLAUDE_CONFIG_DIR: DEMO_CLAUDE } : cleanEnv(process.env)), ...cmd.env };
   const p = pty.spawn(cmd.file || 'cmd.exe', cmd.line, {
-    name: 'xterm-256color', cols: 120, rows: 30, cwd: spec.cwd, env, useConpty: true,
+    name: 'xterm-256color', cols: PTY_SIZE.cols, rows: PTY_SIZE.rows, cwd: spec.cwd, env, useConpty: true,
     // The ConPTY built into Windows drops mouse input, so Claude Code's screen could not
     // be scrolled with the wheel. node-pty ships the newer one Windows Terminal uses.
     useConptyDll: true,
   });
   // A resumed session already holds a conversation, so it counts as used from the start.
-  const s = { pty: p, buffer: '', total: 0, typedAt: 0, waiting: null, alive: true, lastOutput: 0, cwd: spec.cwd, worktree: spec.worktree || null, used: !!resumeId, resumeId, startedAt: Date.now(), model: SMOKE ? opts.model || '' : spec.model || '' };
+  const s = { pty: p, out: makeOut(), total: 0, typedAt: 0, waiting: null, alive: true, lastOutput: 0, cwd: spec.cwd, worktree: spec.worktree || null, used: !!resumeId, resumeId, startedAt: Date.now(), model: SMOKE ? opts.model || '' : spec.model || '' };
   sessions.set(id, s);
   p.onData(data => {
     if (!owns(sessions, id, s)) return;
-    const title = shellTitle(s.buffer.slice(-200) + data);
-    s.buffer = (s.buffer + data).slice(-BUFFER_MAX);
+    // The 200 characters before this piece, then the piece: what the title and "used" checks read.
+    const recent = lastOut(s.out, 200) + data;
+    const title = shellTitle(recent);
+    addOut(s.out, data);
     s.total += data.length;
     s.lastOutput = Date.now();
-    if (!s.used && working(s.buffer.slice(-data.length - 200))) s.used = true;
+    if (!s.used && working(recent)) s.used = true;
     send('session:data', { id, data });
     // Claude Code's first-run "trust this folder" question (#1113): a session waits on it before
     // it joins messaging, so the CTO could not reach it. Connecting a project means trusting it,
     // and FocusShell's own folders are its own: answered Yes here, once, soon after opening.
-    if (!SMOKE && !s.trustDone && Date.now() - s.startedAt < TRUST_WATCH_MS && trustQuestion(plainText(s.buffer.slice(-4000)))) {
+    if (!SMOKE && !s.trustDone && Date.now() - s.startedAt < TRUST_WATCH_MS && trustQuestion(plainText(lastOut(s.out, 4000)))) {
       // The question draws in pieces: read which choice is highlighted once it has settled.
       s.trustDone = true;
       setTimeout(() => {
-        const keys = trustKeys(plainText(s.buffer.slice(-4000)));
+        const keys = trustKeys(plainText(lastOut(s.out, 4000)));
         if (keys && owns(sessions, id, s) && s.alive) p.write(keys); else s.trustDone = false;
       }, 600);
     }
@@ -528,7 +532,7 @@ function head(file, bytes) {
   const fd = fs.openSync(file, 'r');
   try { const b = Buffer.alloc(bytes); return b.toString('utf8', 0, fs.readSync(fd, b, 0, bytes, 0)); } finally { fs.closeSync(fd); }
 }
-ipcMain.on('session:write', (_e, { id, data }) => { const s = sessions.get(id); if (s && s.alive) { if (submits(data)) s.used = true; s.typedAt = s.total; noteTyping(s, data); s.pty.write(data); } });
+ipcMain.on('session:write', (_e, { id, data }) => { const s = sessions.get(id); if (s && s.alive) { if (submits(data)) s.used = true; s.typedAt = s.total; s.pty.write(data); } });
 // Smoke and try runs copy into a clipboard of their own (#1902): leads run many a day while the
 // owner works, and nothing they copy may reach the owner's clipboard or Win+V history.
 const standIn = SMOKE ? memoryClipboard() : null;
@@ -542,7 +546,7 @@ ipcMain.handle('sketch:paste', async (_e, { id, png }) => {
   const kept = await keepClipboard(() => clipboard.read()), from = s.total;
   await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
   s.pty.write(imagePasteKey());
-  whenTaken(() => plainText(s.buffer.slice(-Math.min(s.total - from, 4000))).includes('[Image'))
+  whenTaken(() => plainText(lastOut(s.out, Math.min(s.total - from, 4000))).includes('[Image'))
     .then(() => putBack(clipboard, kept, r => new ClipboardItem(r))).catch(() => {});
   return true;
 });
@@ -577,7 +581,8 @@ ipcMain.on('session:resize', (_e, { id, cols, rows }) => {
   if (s && s.alive && cols > 1 && rows > 1) { try { s.pty.resize(cols, rows); } catch { /* exited */ } }
 });
 // Ending an extra lead that had a worktree also cleans the worktree up; the answer says how.
-ipcMain.handle('session:kill', async (_e, id) => {
+// opts.keep (#3016): the pane is reopened fresh at once, so its worktree stays for the new session.
+ipcMain.handle('session:kill', async (_e, id, opts) => {
   const s = sessions.get(id);
   if (s && s.alive) {
     const ended = new Promise(r => { s.pty.onExit(r); setTimeout(r, 3000); });
@@ -585,7 +590,7 @@ ipcMain.handle('session:kill', async (_e, id) => {
     if (s.worktree) await ended;
   }
   sessions.delete(id);
-  return s && s.worktree ? removeWorktree(s.worktree) : '';
+  return s && s.worktree && !(opts && opts.keep) ? removeWorktree(s.worktree) : '';
 });
 // A lead that went quiet on a permission dialog or a question in its own pane (#119): the
 // page checks the lead's screen, then marks it, asks for a notification and tells the lead's
@@ -595,7 +600,7 @@ setInterval(() => {
     if (isMgr(id) || id === 'pm' || brainstorms.has(id)) continue; // a brainstorm is in front of the owner already
     // A new prompt counts once output has stopped; a seen one stays until it leaves the screen.
     const look = claudeOn(s) && (s.waiting || Date.now() - s.lastOutput > 2000);
-    const what = look ? waitingFor(s.buffer.slice(-Math.min(s.total - s.typedAt, 4000))) : null;
+    const what = look ? waitingFor(lastOut(s.out, Math.min(s.total - s.typedAt, 4000))) : null;
     if (what === s.waiting) continue;
     s.waiting = what;
     send('session:waiting', { id, what });
@@ -621,7 +626,7 @@ setInterval(() => {
     n.show();
   }
 }, 15000);
-ipcMain.handle('session:states', () => Object.fromEntries([...sessions].map(([id, s]) => [id, { alive: claudeOn(s), lastOutput: s.lastOutput, model: s.model }])));
+ipcMain.handle('session:states', () => Object.fromEntries([...sessions].map(([id, s]) => [id, { alive: claudeOn(s), lastOutput: s.lastOutput, model: s.model, startedAt: s.startedAt, cwd: s.cwd }])));
 // The tavern's helpers (#240): subagents the live panes run right now, read from Claude's
 // transcript folders (file names and times only).
 ipcMain.handle('tavern:helpers', () => activeHelpers([...sessions].filter(([, s]) => claudeOn(s)).map(([id, s]) => ({ id, cwd: s.cwd, startedAt: s.startedAt })),
@@ -631,7 +636,7 @@ const paneName = id => (id === 'cto' ? 'CTO' : id.startsWith('cto-') ? `CTO ${id
 // Real numbers (#288), but in Demo mode only from the demo's own Claude folder, so no real
 // project name reaches the recorded video (#314).
 const claudeProjects = () => path.join(DEMO ? DEMO_CLAUDE : path.join(os.homedir(), '.claude'), 'projects');
-ipcMain.handle('tavern:tokens', () => sessionBoard(claudeProjects(),
+ipcMain.handle('tavern:tokens', async () => await sessionBoard(claudeProjects(),
     [...sessions].filter(([, s]) => claudeOn(s)).map(([id, s]) => ({ id, name: paneName(id), kind: id === 'pm' ? 'PM' : id.startsWith('cto') ? 'CTO' : 'lead', cwd: s.cwd, startedAt: s.startedAt }))));
 // The chalkboard's other tabs (#285): tokens today or this week by agent, the demo's own logs in
 // Demo mode (#314); tasks marked done on the boards. Its Commits tab asks commits:today (commits.js).
@@ -706,13 +711,24 @@ app.on('will-quit', () => {
   try { plugins.stopAll(); } catch { /* quitting */ }
 });
 
-ipcMain.handle('open:path', async (_e, target) => {
+// Only --smoke records web links instead of opening them; a --try window is the owner's own clicks.
+const SMOKE_ONLY = !TRY && SMOKE;
+const smokeOpenedLinks = [];
+if (SMOKE_ONLY) ipcMain.handle('smoke:opened-links', () => smokeOpenedLinks.slice());
+ipcMain.handle('open:path', async (_e, target, how) => {
   const t = String(target || '').trim();
-  if (/^https?:\/\//i.test(t)) { await shell.openExternal(t); return true; }
+  if (/^https?:\/\//i.test(t)) {
+    if (SMOKE_ONLY) { smokeOpenedLinks.push(t); console.log(`smoke: opened in the browser ${t}`); return true; }
+    await shell.openExternal(t); return true;
+  }
   if (!isAbsPath(t)) return false;
   const p = onDisk(t);
   try {
     if (fs.statSync(p).isDirectory()) { return (await shell.openPath(p)) === ''; }
+    if (how !== 'folder' && isWebPage(p)) {
+      if (SMOKE) { console.log(`smoke: opened in the browser ${p}`); return true; }
+      return (await shell.openPath(p)) === '';
+    }
     if (SMOKE) { console.log(`smoke: shown in Explorer ${p}`); return true; }
     shell.showItemInFolder(p); return true;
   } catch {
@@ -729,8 +745,10 @@ registerProjectPage({ ipcMain, P, DECK, read, readData, board, nowStamp, loadPro
 
 const { stopCodeWeb } = registerCodeWeb({ ipcMain, app, shell, P, SMOKE, sessions, findProject, loadProjects });
 registerStatus({ ipcMain, P, SMOKE });
-registerMissed({ ipcMain, P, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, cleanEnv });
+registerArrived({ ipcMain, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions });
 registerBackground({ ipcMain, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, live: claudeOn });
+registerContext({ ipcMain, SMOKE, DEMO, demoClaude: path.join(path.dirname(DEMO_HOME), 'claude'), sessions, live: claudeOn,
+  personal: () => loadProjects().projects.filter(isPersonal).map(p => p.name), brainstorm: id => brainstorms.has(id) });
 registerWorktreeSweep({ app, SMOKE, DEMO, DECK, projects: () => loadProjects().projects, liveFolders: () => [...sessions.values()].filter(s => s.alive).map(s => s.cwd) });
 
 // ---------- shared files ----------
@@ -753,7 +771,7 @@ registerCommits({ ipcMain, SMOKE, projectList });
 // The hidden smoke run fakes what a plugin records and runs (fake), unless
 // FOCUSSHELL_RECORDER_REAL=1 asks for the real thing; smoke and try runs take no global keys
 // unless FOCUSSHELL_PLUGIN_KEYS=1.
-const plugins = registerPlugins({ ipcMain, P, SMOKE, send, services: pluginServices({ desktopCapturer, screen, systemPreferences, mac: !WIN, data: path.dirname(P.ideas),
+const plugins = registerPlugins({ ipcMain, P, SMOKE, tryRun: TRY, send, services: pluginServices({ desktopCapturer, screen, systemPreferences, mac: !WIN, data: path.dirname(P.ideas),
   lock: BOARD_LOCK(), projectList, cleanEnv, work: path.join(P.state, 'helper', 'work'), brainstorm: brainstormService }),
   fake: HIDDEN && process.env.FOCUSSHELL_RECORDER_REAL !== '1', keys: !SMOKE || process.env.FOCUSSHELL_PLUGIN_KEYS === '1' });
 // Read fresh each time, so a project added to projects.json or the projects folder needs no restart.
@@ -911,19 +929,58 @@ setInterval(() => {
   if (win && !win.isFocused()) win.flashFrame(true);
 }, 15000);
 
-let dataTimer = null;
+// Board changes (#2928): each watcher says which file changed (lib/datawatch.js), and when the
+// 150 ms wait ends only those files are read again and sent, marked partial, with null for a
+// board gone. Every board was read and sent to the page on each write, about 6 MB. An event with
+// no file name or any other name, and the card notes and sketches, read and send everything, as
+// before. The alerts still see every board.
+let dataTimer = null, lastData = null;
+const noChange = () => ({ all: false, boards: new Set(), notes: false, ideas: false, goals: false });
+let dataChange = noChange();
+function sendData() {
+  const c = dataChange;
+  dataChange = noChange();
+  // A board renamed by case only (lib/datawatch.js caseClash) reads everything too.
+  const clash = () => {
+    const known = new Set(Object.keys(lastData.tasks));
+    try { for (const f of fs.readdirSync(P.tasks)) if (f.endsWith('.md')) known.add(f.slice(0, -3)); } catch { /* none yet */ }
+    return [...c.boards].some(b => caseClash(b, known));
+  };
+  if (c.all || !lastData || (c.boards.size && clash())) { lastData = readData(); notifyNewAlerts(lastData); send('data:changed', lastData); return; }
+  const d = { partial: true };
+  if (c.boards.size) {
+    d.tasks = {};
+    for (const b of c.boards) {
+      const f = path.join(P.tasks, `${b}.md`);
+      if (fs.existsSync(f)) lastData.tasks[b] = d.tasks[b] = read(f);
+      else { delete lastData.tasks[b]; d.tasks[b] = null; }
+    }
+  }
+  if (c.notes) lastData.notes = d.notes = read(P.notes);
+  if (c.ideas) lastData.ideas = d.ideas = read(path.join(P.ideas, 'Me.md'));
+  notifyNewAlerts(lastData);
+  send('data:changed', d);
+}
 function watchData() {
-  notifyNewAlerts(readData());
-  const bump = () => { clearTimeout(dataTimer); dataTimer = setTimeout(() => { const d = readData(); notifyNewAlerts(d); send('data:changed', d); }, 150); };
+  lastData = readData();
+  notifyNewAlerts(lastData);
+  const bump = what => (_ev, f) => {
+    const c = changeOf(what, f);
+    if (c.board) dataChange.boards.add(c.board);
+    else if (c.file) dataChange[c.file] = true;
+    else dataChange.all = true;
+    clearTimeout(dataTimer);
+    dataTimer = setTimeout(sendData, 150);
+  };
   fs.mkdirSync(P.tasks, { recursive: true });
   if (!fs.existsSync(P.notes)) fs.writeFileSync(P.notes, '# Notes\n');
-  fs.watch(P.tasks, bump);
-  fs.watch(P.notes, bump);
+  fs.watch(P.tasks, bump('tasks'));
+  fs.watch(P.notes, bump('notes'));
   // Card notes, where the CTO replies to what the owner said on a card.
   fs.mkdirSync(P.projectNotes, { recursive: true });
-  fs.watch(P.projectNotes, bump);
+  fs.watch(P.projectNotes, bump('all'));
   fs.mkdirSync(P.ideas, { recursive: true }); fs.mkdirSync(P.sketches, { recursive: true });
-  fs.watch(P.ideas, bump); fs.watch(P.sketches, { recursive: true }, bump);
+  fs.watch(P.ideas, bump('ideas')); fs.watch(P.sketches, { recursive: true }, bump('all'));
   // projects.json and groups.json may be replaced rather than edited, so watch their folder.
   let projTimer = null;
   fs.watch(DECK, (_ev, f) => {

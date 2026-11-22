@@ -81,6 +81,31 @@ test('pluginStates: off by default, manifest shortcut unless changed or cleared'
   assert.equal(pluginStates([good], { echo: { on: true, shortcut: 'Control+Alt+Q' } }).echo.shortcut, 'Control+Alt+Q');
 });
 
+test('pluginStates: a plugin with defaultOn is on until switched off', () => {
+  const on = { ...good, defaultOn: true };
+  assert.equal(pluginStates([on], {}).echo.on, true);
+  assert.equal(pluginStates([on], null).echo.on, true);
+  assert.equal(pluginStates([on], { echo: { on: false } }).echo.on, false, 'a saved false wins');
+  assert.equal(pluginStates([on], { echo: { on: true } }).echo.on, true, 'a saved true stays');
+  assert.equal(pluginStates([on], { echo: { settings: { greeting: 'yo' } } }).echo.on, true, 'an entry with only settings keeps the default');
+  assert.equal(pluginStates([on], { echo: { on: 'no' } }).echo.on, true, 'a non-boolean on is ignored');
+  assert.equal(pluginStates([good], { echo: { settings: {} } }).echo.on, false, 'no defaultOn: still off');
+  assert.equal(pluginStates([{ ...good, defaultOn: 'yes' }], {}).echo.on, false, 'only true counts');
+});
+
+test('checkManifest: defaultOn must be a boolean', () => {
+  assert.deepEqual(checkManifest({ ...good, defaultOn: true }), []);
+  assert.deepEqual(checkManifest({ ...good, defaultOn: false }), []);
+  assert.deepEqual(checkManifest({ ...good, defaultOn: 'yes' }), ['defaultOn must be true or false']);
+});
+
+test('normalizePluginsEntry keeps on only when it is a boolean', () => {
+  assert.deepEqual(normalizePluginsEntry({ echo: { settings: { a: 'b' } } }), { echo: { settings: { a: 'b' } } });
+  assert.deepEqual(normalizePluginsEntry({ echo: { on: 'yes', settings: {} } }), { echo: { settings: {} } });
+  assert.deepEqual(normalizePluginsEntry({ echo: { on: false } }), { echo: { on: false, settings: {} } });
+  assert.deepEqual(normalizePluginsEntry({ echo: { on: true } }), { echo: { on: true, settings: {} } });
+});
+
 test('shortcutClashes: FocusShell keys and a second plugin on the same key', () => {
   const st = {
     a: { on: true, shortcut: 'Control+Alt+R' },

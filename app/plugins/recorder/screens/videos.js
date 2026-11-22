@@ -38,7 +38,7 @@ function preview(a, r, now) {
   const shown = a.thumbs.get(r.id);
   if (shown) pic.append(h('img', { src: shown, alt: `The recording of ${when(r.startedAt)}` }));
   if (lengthOf(r)) pic.append(h('span', { class: 'recvlen' }, lengthOf(r)));
-  const btn = (label, icon, fn, o = {}) => h('button', { class: 'btn recopen ' + (o.cls || ''), disabled: !!o.off, title: o.title || label, onclick: fn }, icon ? ui.icon(icon) : null, label);
+  const btn = (label, icon, fn, o = {}) => h('button', { class: 'btn recopen ' + (o.cls || ''), disabled: !!o.off, title: o.title, onclick: fn }, icon ? ui.icon(icon) : null, label);
 
   let status = null;
   if (s && state === 'processing') {

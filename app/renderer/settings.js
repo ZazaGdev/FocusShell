@@ -6,7 +6,7 @@ const MODEL_WORD = { '': 'Claude default', fable: 'Fable', opus: 'Opus', sonnet:
 
 // c: { h, settings, save, back, pushed: [project names] or null while loading, projects: [names],
 //      roots: [folders projects are listed from] or null while loading, pickRoot(),
-//      pluginSection(parts) (#369), demo: the Demo (#1065) }
+//      pluginSection(parts) (#369) gives one card for each plugin, demo: the Demo (#1065) }
 export function renderSettings(root, c) {
   const { h, settings: s } = c;
   const set = patch => c.save({ ...s, ...patch });
@@ -29,8 +29,7 @@ export function renderSettings(root, c) {
       opt('Spacing', 'How roomy the app is: text and gaps grow or shrink together', seg(SPACES.map(x => x.id), s.space, v => set({ space: v }), v => SPACES.find(x => x.id === v).name)),
       opt('Font', 'The app\'s text; terminals keep their own font', h('select', { class: 'inp', onchange: e => set({ font: e.target.value }) },
         FONTS.map(f => h('option', { value: f.id, selected: f.id === s.font }, f.name)))),
-      // #1101: off removes the part from the window entirely; questions still reach the Board and Waiting on you.
-      opt('Show Maybe missed', 'The button above the CTO that lists questions and results in its replies you may have skipped', toggle(s.showMissed, v => set({ showMissed: v }))),
+      // #1101: off removes the Tavern from the window entirely.
       opt('Show Tavern', 'The Tavern button in the title bar and the tavern itself; off, it does not run', toggle(s.showTavern, v => set({ showTavern: v }))),
       opt('Walkthrough', 'A short tour of the main parts of FocusShell', h('button', { class: 'btn', 'data-act': 'tour', onclick: c.replayTour }, 'Replay the walkthrough')),
       // In-app updates (#1088): the installed app looks for new versions by itself.
@@ -82,7 +81,7 @@ export function renderSettings(root, c) {
     h('section', { class: 'pcard' },
       h('h2', {}, 'Board'),
       opt('Compact items', 'Project board items take one line each (Me and Today stay as they are)', toggle(s.boardCompact, v => set({ boardCompact: v })))),
-    c.pluginSection ? c.pluginSection({ h, opt, toggle, settings: s, set }) : null,
+    ...(c.pluginSection ? c.pluginSection({ h, opt, toggle, settings: s, set }) : []),
     h('section', { class: 'pcard' },
       h('h2', {}, 'Tags'),
       opt('Item tags', 'Badges an item can carry, to filter a board by', h('div', { class: 'tagset' },
@@ -146,5 +145,7 @@ const GROUPS = [
   ['Boards', ['Board', 'Self', 'Tags']],
   ['Sessions', ['Models', 'Catch up', 'Status', 'Sessions']],
   ['Connections', ['Connections']],
-  ['Plugins', ['Plugins']],
+  ['Screen recorder', ['Screen recorder']],
 ];
+// Shows this section next time Settings is drawn (a plugin's menu opens its own, #2919).
+export function settingsSection(name) { shown = name; }

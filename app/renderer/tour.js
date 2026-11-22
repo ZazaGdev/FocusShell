@@ -8,7 +8,7 @@ export const TOUR = [
   { sel: '#home .pp-board', title: 'The Board', text: 'Every project\'s tasks in one place: what needs you, what is ready to send, what is in progress and done. Questions from the leads wait under Waiting on you, above the CTO: answer them in place.' },
   { sel: '#home .pp-me', title: 'Self', text: 'Your own to-dos and reminders. They are never sent to a lead.' },
   { sel: '#status .talkhint', title: 'Hold to talk', text: 'Hold Ctrl+Shift+Space anywhere to talk to the CTO with your voice.' },
-  { sel: '.plugsbtn', title: 'Screen recorder', text: 'Under Plugins: record your screen while you talk, and FocusShell turns what you say into tasks with screenshots.' },
+  { sel: '.plugbtn[data-plugin="recorder"]', title: 'Screen recorder', text: 'Record your screen while you talk, and FocusShell turns what you say into tasks with screenshots. The arrow beside it opens your recordings.' },
   { sel: '#btnSettings', title: 'Settings', text: 'Themes, spacing, fonts and more. You can replay this walkthrough from Preferences.' },
 ];
 let layer = null;

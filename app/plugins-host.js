@@ -10,12 +10,14 @@ import { checkManifest, pluginStates, shortcutClashes } from './lib/plugins.js';
 import { MANIFESTS } from './plugins/manifests.js';
 import { MAINS } from './plugins/index.js';
 
-// d: { ipcMain, P, SMOKE, send, services: { name: id => service }, fake, keys }
+// d: { ipcMain, P, SMOKE, tryRun, send, services: { name: id => service }, fake, keys }
 // fake: a plugin should fake what it records and runs (the hidden smoke run); keys: global
 // shortcuts may be taken (never in smoke and try runs unless a test asks).
 export function registerPlugins(d) {
   const { ipcMain, P, SMOKE, send, services = {}, fake = false, keys = !SMOKE } = d;
-  const root = path.join(P.state, SMOKE ? path.join('smoke', 'plugins') : 'plugins');
+  // A try run has its own folder (#2919): with the recorder on by default it would otherwise take
+  // over a smoke run's open recording.
+  const root = path.join(P.state, SMOKE ? path.join('smoke', d.tryRun ? 'try-plugins' : 'plugins') : 'plugins');
   const known = MANIFESTS.filter(m => SMOKE || !m.smokeOnly);
   const bad = Object.fromEntries(known.map(m => [m.id, checkManifest(m).join('; ') || (MAINS[m.id] ? '' : 'no main side')]).filter(([, e]) => e));
   const live = new Map(); // id: { handlers, shortcutFn, deactivate, key, onSettings }

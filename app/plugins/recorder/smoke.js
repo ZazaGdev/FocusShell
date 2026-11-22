@@ -1,6 +1,8 @@
 // The recorder in the smoke run (#369). Normally the run fakes the capture (a painted canvas and
-// a tone), the transcript, Claude's reply and the screenshots: the button starts and stops a
-// recording, chunks reach the video file, and the review shows three cards with screenshots. A
+// a tone), the transcript, Claude's reply and the screenshots: the recorder is on by default, the
+// Record button opens its intro and Start recording starts (#2919), the arrow beside it opens a
+// menu, the button stops a recording, chunks reach the video file, and the review shows three
+// cards with screenshots. A
 // description is typed, one card accepted, one accepted and sent to the CTO, Discard all asks
 // first, Accept all ends it; the boards (in state/smoke/data) are read back, and an accepted
 // item opens with its screenshots.
@@ -17,47 +19,101 @@ export async function recorderSmoke({ deck, app, render, wait }) {
   const cardEl = id => [...document.querySelectorAll('.recgrid .plugcard')].find(el => el.dataset.card === id);
   const toastSaid = re => [...document.querySelectorAll('#toasts .toast')].some(t => re.test(t.textContent));
 
-  app.saveSettings({ ...app.settings, plugins: { recorder: { on: true, settings: { model: 'ggml-small.en-q5_1.bin' } } } });
+  const caret = () => document.querySelector('.plugcaret[data-plugin="recorder"]');
+  const menuRows = () => [...document.querySelectorAll('.plugmenu .mitem')];
+  const menuWords = () => menuRows().map(r => r.querySelector('span').textContent);
+  const introBtn = label => [...document.querySelectorAll('.recintro .btn')].find(b => b.textContent === label);
+  // The arrow's menu, opened fresh (#2919).
+  const openMenu = async () => {
+    if (document.querySelector('.plugmenu')) caret().click();
+    caret().click();
+    if (!(await until(() => menuRows().length))) fail('the arrow beside Record opened no menu');
+  };
+  // Record, then the intro's Start recording: how a recording starts from the button.
+  const startFromButton = async () => {
+    btn().click();
+    if (!(await until(() => introBtn('Start recording')))) fail('the Record button did not open the intro');
+    introBtn('Start recording').click();
+  };
+
+  // #2919: the recorder is on by default, so its button shows with nothing saved: Record, where
+  // Plugins was, with no Plugins button.
   if (!(await until(() => btn()))) fail('the button never showed');
+  if (document.querySelector('.plugsbtn')) fail('the Plugins button still shows');
+  if (getComputedStyle(btn()).display === 'none' || btn().querySelector('.plugl').textContent !== 'Record' || btn().dataset.state !== 'idle') fail(`the idle button is not "Record": ${btn().textContent}`);
+  if (!caret() || caret().previousElementSibling !== btn() || btn().compareDocumentPosition(document.getElementById('btnSettings')) !== Node.DOCUMENT_POSITION_FOLLOWING) fail('the Record button and its arrow are not before Settings');
+  console.log(`smoke: recorder on by default, button "${btn().textContent}" with its arrow, no Plugins button`);
+  // Changing a recorder setting saves an entry with no `on`: it must stay on.
+  app.saveSettings({ ...app.settings, plugins: { recorder: { settings: { model: 'ggml-small.en-q5_1.bin' } } } });
+  await wait(800);
+  if (!btn()) fail('changing a recorder setting switched the recorder off');
   const fake = ((await deck.plugin.list()).find(p => p.manifest.id === 'recorder') || {}).fake;
   // A recording a failed run left open would be picked up instead: clear it.
   if ((await state()).session) await deck.plugin.invoke('recorder', 'discard', false);
 
   // #407: Settings offers the Whisper folder, model and ffmpeg as dropdowns, never free text.
+  // #2919: they are in the Screen recorder section, with Delete all recordings at its end.
   {
     app.view = 'settings'; render();
+    document.querySelector('.setnav [data-sec="Screen recorder"]')?.click();
     const sel = k => document.querySelector(`select.listed[data-key="${k}"]`);
-    await until(() => sel('whisperDir') && sel('whisperDir').options.length > 1 && sel('ffmpeg') && sel('model'), 5000);
+    await until(() => sel('whisperDir') && sel('whisperDir').options.length > 1 && sel('ffmpeg') && sel('ffmpeg').options.length > 1 && sel('model') && document.querySelector('.recdelall'), 8000);
     const keys = ['whisperDir', 'model', 'ffmpeg'].filter(k => sel(k));
     const opts = Object.fromEntries(keys.map(k => [k, [...sel(k).options].map(o => o.textContent)]));
-    sel('whisperDir')?.scrollIntoView({ block: 'center' }); await wait(300);
+    const card = document.querySelector('.recdelall')?.closest('.pcard');
+    const last = card && card.lastElementChild;
+    if (!card || card.querySelector('h2').textContent !== 'Screen recorder' || !last || !last.querySelector('.recdelall')) fail('Delete all recordings is not at the end of the Screen recorder card');
+    if (document.querySelector('.recpast')) fail('the old Recordings list still shows in Settings');
+    last?.scrollIntoView({ block: 'end' }); await wait(300);
     await deck.smokeShot('recorder-settings');
     const ok = keys.length === 3 && opts.whisperDir.includes('Choose a folder...') && opts.ffmpeg.includes('Choose a file...');
     console[ok ? 'log' : 'error'](`smoke: recorder settings as dropdowns: ${JSON.stringify(opts)}`);
     app.view = 'home'; render(); await wait(300);
   }
 
-  // Plugins > Screen recorder: its button, named for what a click does now (#394).
-  const panelStart = async () => {
-    document.querySelector('.plugsbtn').click();
-    if (!(await until(() => document.querySelector('.plugsrow')))) fail('the Plugins list did not open');
-    [...document.querySelectorAll('.plugsrow')].find(r => /Screen recorder/.test(r.textContent)).querySelector('button').click();
-    await until(() => document.querySelector('.plugstart'));
-    return document.querySelector('.plugstart');
-  };
+  // The arrow beside Record (#2919): New recording, Recorded videos with its count, Recorder
+  // settings. Recorded videos opens even with no recordings, and its New recording opens the intro.
+  {
+    await openMenu();
+    const words = menuWords();
+    if (words.join('|') !== 'New recording|Recorded videos|Recorder settings') fail(`the arrow menu lists ${words.join(', ')}`);
+    await deck.smokeShot('recorder-menu');
+    menuRows()[1].click();
+    if (document.querySelector('.plugmenu')) fail('a menu row did not close the menu');
+    if (!(await until(() => document.querySelector('.recvmodal .recvids')))) fail('Recorded videos did not open from the arrow menu');
+    document.querySelector('.recvmodal .closex')?.click();
+    await openMenu();
+    menuRows()[0].click();
+    if (!(await until(() => introBtn('Start recording')))) fail('New recording did not open the intro');
+    await wait(300);
+    await deck.smokeShot('recorder-intro');
+    if (!/Ctrl\+Alt\+R/.test(document.querySelector('.recintro').textContent)) fail('the intro does not show the shortcut');
+    introBtn('Cancel').click();
+    if (document.querySelector('.recintro') || (await state()).session) fail('Cancel on the intro left it open or started a recording');
+    await openMenu();
+    menuRows()[2].click();
+    if (!(await until(() => document.querySelector('.setnav .on')?.dataset.sec === 'Screen recorder'))) fail('Recorder settings did not open the Screen recorder section');
+    app.view = 'home'; render(); await wait(300);
+    // Escape closes the menu, and so does a click elsewhere.
+    await openMenu();
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    if (document.querySelector('.plugmenu')) fail('Escape did not close the arrow menu');
+    console.log('smoke: recorder arrow menu: rows, Recorded videos, New recording intro, Recorder settings, Escape');
+  }
+
   if (fake) {
-    let b = await panelStart();
-    if (b.textContent !== 'Start recording') fail(`the Plugins screen's button reads "${b.textContent}" with nothing recording`);
-    b.click(); // the same as the shortcut: a recording starts
-    if (!(await reached('recording', 5000))) fail('Start recording on the Plugins screen did not start a recording');
+    // The intro shows every time Record is clicked; Start recording starts (#2919).
+    btn().click();
+    if (!(await until(() => introBtn('Start recording')))) fail('the Record button did not open the intro');
+    introBtn('Cancel').click();
+    await startFromButton();
+    if (!(await reached('recording', 5000))) fail('Start recording on the intro did not start a recording');
     if (!(await until(() => btn().dataset.state === 'active'))) fail('the button does not show it is recording');
-    b = await panelStart();
-    const mid = b.textContent;
-    const shade = document.querySelector('.plugsmodal');
-    shade?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); // a click beside the box closes it
-    if (document.querySelector('.plugsmodal')) fail('the Plugins screen did not close');
-    if (mid !== 'Stop recording') fail(`while recording the Plugins screen's button reads "${mid}"`);
-    console.log(`smoke: recorder Plugins screen button: Start recording, then "${mid}" while recording`);
+    await openMenu();
+    const mid = menuWords()[0];
+    caret().click();
+    if (mid !== 'Stop recording') fail(`while recording the arrow menu starts with "${mid}"`);
+    console.log(`smoke: recorder intro Start recording, then "${mid}" in the menu while recording`);
     await wait(2600);
     btn().click();
     // #401: Stop leaves the owner where they are; the button works in the background.
@@ -68,7 +124,7 @@ export async function recorderSmoke({ deck, app, render, wait }) {
     // FOCUSSHELL_RECORDER_AREA marks the area (#376): the overlay opens unseen and answers by
     // itself, then the real screen and mic are recorded for eight seconds.
     const kinds = () => deck.plugin.invoke('recorder', 'windows');
-    btn().click();
+    await startFromButton();
     if (!(await reached('recording', 15000))) fail('the overlay did not start a recording');
     await wait(1500);
     const open = await kinds();
@@ -212,18 +268,27 @@ export async function recorderSmoke({ deck, app, render, wait }) {
   await deck.smokeShot('recorder-item');
   document.querySelector('.tdclose')?.click();
 
-  // #384: with nothing open the title bar circle is hidden, and Plugins > Screen recorder lists
-  // the finished recording under Recordings.
-  if (!(await until(() => btn() && btn().dataset.state === 'idle' && getComputedStyle(btn()).display === 'none'))) fail('the circle still shows with no recording open');
-  document.querySelector('.plugsbtn').click();
-  if (!(await until(() => document.querySelectorAll('.plugsrow').length))) fail('the Plugins list is empty');
-  [...document.querySelectorAll('.plugsrow')].find(r => /Screen recorder/.test(r.textContent)).querySelector('button').click();
-  if (!(await until(() => document.querySelector(`.recpastrow[data-rec="${st.session ? st.session.id : ''}"], .recpastrow`)))) fail('Recordings lists nothing');
-  const pastText = document.querySelector('.recpast').textContent;
-  if (!/Done/.test(pastText)) fail(`Recordings does not show the finished one: ${pastText}`);
-  console.log(`smoke: recorder circle hidden when idle, Recordings lists ${document.querySelectorAll('.recpastrow').length}`);
+  // #2919: with nothing open the Record button is back to idle and still shows, and Settings >
+  // Screen recorder counts the finished recording and deletes every recording after asking.
+  if (!(await until(() => btn() && btn().dataset.state === 'idle' && getComputedStyle(btn()).display !== 'none' && btn().querySelector('.plugl').textContent === 'Record'))) fail('the Record button is not back to idle with no recording open');
+  app.view = 'settings'; render();
+  document.querySelector('.setnav [data-sec="Screen recorder"]')?.click();
+  const helpOf = () => (document.querySelector('.recdelall')?.closest('.opt')?.querySelector('.l span') || {}).textContent || '';
+  if (!(await until(() => /^[1-9]\d* kept/.test(helpOf()) && !document.querySelector('.recdelall').disabled))) fail(`Settings does not count the finished recording: "${helpOf()}"`);
+  document.querySelector('.recdelall').click();
+  if (!(await until(() => document.querySelector('.plugconfirm')))) fail('Delete all recordings did not ask first');
+  [...document.querySelectorAll('.plugconfirm .btn')].find(b => b.textContent === 'Cancel').click();
+  await wait(300);
+  if (!/^[1-9]\d* kept/.test(helpOf())) fail('Cancel deleted the recordings');
+  document.querySelector('.recdelall').click();
+  if (!(await until(() => document.querySelector('.plugconfirm')))) fail('Delete all recordings did not ask again');
+  [...document.querySelectorAll('.plugconfirm .btn')].find(b => b.textContent === 'Delete all').click();
+  if (!(await until(() => /^0 kept/.test(helpOf()), 5000))) fail(`Delete all recordings left ${helpOf()}`);
+  console.log(`smoke: recorder idle button "${btn().textContent}", Settings counted the recording, Delete all emptied it: ${helpOf()}`);
   await deck.smokeShot('recorder-recordings');
-  document.querySelector('.plugmodal .closex')?.click();
+  // Changing a setting did not switch it off (#2919).
+  if (!btn()) fail('the recorder went off during the run');
   app.saveSettings({ ...app.settings, plugins: {} });
+  app.view = 'home';
   render();
 }

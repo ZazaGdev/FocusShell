@@ -15,7 +15,11 @@ const SPAN = 60;      // rows read around the screen, enough for any link a row 
 
 export function paintLinks(term, provider, isShown) {
   let decos = [], painted = [], timer = 0, lastSig = '', busy = false, dirty = false;
-  const cache = new Map(); // the text around a row -> the link ranges the provider gave it, and the text of the rows they cover
+  // The width and the text around a row -> the link ranges the provider gave it and the text of
+  // the rows they cover, both as rows relative to the row asked for (#2928): once the scrollback
+  // is full every row's number moves up with each new line, and a cache keyed by row number
+  // missed on every scan.
+  const cache = new Map();
   const text = (buf, r) => { const l = buf.getLine(r); return l ? l.translateToString(false) : ''; };
   // xterm draws a decoration's colour only when its row is next drawn, so rows are redrawn
   // whenever paint comes or goes, or what shows would lag behind (#1886).
@@ -27,13 +31,18 @@ export function paintLinks(term, provider, isShown) {
   const linksOn = (buf, y) => {
     const around = [];
     for (let r = y - 1 - JOINS; r <= y - 1 + JOINS; r++) around.push(text(buf, r));
-    const key = `${y}|${term.cols}|${around.join('\n')}`, hit = cache.get(key);
-    if (hit && hit.rows.every(([r, s]) => text(buf, r) === s)) return Promise.resolve(hit.ranges);
+    const key = `${term.cols}|${around.join('\n')}`, hit = cache.get(key);
+    if (hit && hit.rows.every(([dr, s]) => text(buf, y - 1 + dr) === s)) {
+      return Promise.resolve(hit.ranges.map(g => ({ start: { x: g.start.x, y: y + g.start.dy }, end: { x: g.end.x, y: y + g.end.dy } })));
+    }
     const rows = new Map();
     for (let r = y - 1 - SPAN; r <= y - 1 + SPAN; r++) rows.set(r, text(buf, r));
     return new Promise(res => provider.provideLinks(y, links => {
       const ranges = (links || []).map(l => l.range);
-      cache.set(key, { ranges, rows: ranges.flatMap(g => Array.from({ length: g.end.y - g.start.y + 1 }, (_, k) => [g.start.y - 1 + k, rows.get(g.start.y - 1 + k)])) });
+      cache.set(key, {
+        ranges: ranges.map(g => ({ start: { x: g.start.x, dy: g.start.y - y }, end: { x: g.end.x, dy: g.end.y - y } })),
+        rows: ranges.flatMap(g => Array.from({ length: g.end.y - g.start.y + 1 }, (_, k) => [g.start.y - y + k, rows.get(g.start.y - 1 + k)])),
+      });
       if (cache.size > KEEP) cache.delete(cache.keys().next().value);
       res(ranges);
     }));

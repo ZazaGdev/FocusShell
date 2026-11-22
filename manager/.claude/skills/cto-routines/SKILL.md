@@ -1,6 +1,6 @@
 ---
 name: cto-routines
-description: Use when the user asks the CTO "status?" (or /team-status), "pick up the work" (or /pick-up), "safe to restart?", "wrap up the day" (or /wrap-up, "finish the day", "end of day"), or when a "STATUS REFRESH:" or "CATCH UP <Project>:" line arrives in the CTO's prompt.
+description: Use when the user asks the CTO "status?" (or /team-status), "pick up the work" (or /pick-up), "safe to restart?", "wrap up the day" (or /wrap-up, "finish the day", "end of day"), or when a "STATUS REFRESH:", "CATCH UP <Project>:", "CONTEXT FULL:", "NEW DAY:", "REOPENED" or "HALF" line arrives in the CTO's prompt.
 ---
 
 # Status, catch up, pick up, safe to restart, wrap up
@@ -47,14 +47,20 @@ projects; the user should not have to say either twice.
 **"Pick up the work"** (or `/pick-up`; also "pick up the work on all projects", "from previous sessions",
 "on interrupted sessions"): for every project you own, read its task file and hand out
 its open (` `) tasks as in "Handing out work". Skip `for owner` tasks, and tasks whose
-detail lines say the user parked them or wants to brainstorm first. Call `ListAgents`;
+detail lines say the user parked them or wants to brainstorm first. Also skip open tasks
+whose `  > Start: <YYYY-MM-DD>` line is after today's date (compare the dates as text); a task
+whose start is today or earlier goes out as usual (the Start line stays). Call `ListAgents`;
 for each `~` task whose lead is not listed, offer to reopen the pane and resend it. Then
-tell the user one line per project: what went out, and what is waiting on them.
+tell the user one line per project: what went out, what is waiting on them, and
+"held until <date>: #<n>" for each task held back by its start date.
 
 **"Safe to restart?"** (also "is every ongoing task done so I can restart?"): call
 `ListAgents` and read the `~` tasks of every project you own. Answer one line per project:
-busy (which task) or idle. If any lead is busy, use `notify_when_idle: true` and tell the
-user the moment the last busy lead finishes. A lead in the middle of a long test run can
+busy (which task) or idle. A lead whose last line to you is `WORKING #<n>` (a builder or
+another run going in the background, #2780) is busy even when `ListAgents` shows it idle
+(leads send no further lines while they wait, so an older WORKING still counts): a
+restart would kill that run; send it `STATUS?` and wait for its report. If any lead is busy,
+use `notify_when_idle: true` and tell the user the moment the last busy lead finishes. A lead in the middle of a long test run can
 be asked to stop and run it after the restart, if the user would rather not wait.
 
 ## Wrap up the day
@@ -103,3 +109,35 @@ Leave every pane open; close a lead only when the user asks (see "Closing a pane
 `cto-panes` skill).
 The `Stopped at` line is where tomorrow's work carries on: include it when you resend a
 `~` task, as "Pick up the work" offers for a lead that is gone.
+
+A `HALF #<n>` or `HALF new` line from a lead at any time, not only at wrap up, is recorded as in
+step 2.
+
+## Context full
+
+FocusShell types `CONTEXT FULL: this pane is at <n>% of its context window. ...` into your pane
+when your context is nearly full, or `NEW DAY: a new day started, ...` once a day, the first
+time you are idle after 05:00. Either way, stop at a safe point with the same five steps;
+FocusShell then reopens you fresh.
+
+1. Finish only the step in hand and start nothing new.
+2. Record every report not yet recorded, as in "Reports from leads".
+3. Put on the board what lives only in this conversation, such as a question for the user not
+   yet asked, with `deck detail`.
+4. End the reply with
+   `READY TO REOPEN | stopped at: <what you were doing, what waits on whom> | next: <the first thing to do>`,
+   alone and last.
+5. Until you are reopened, end every later reply with that line too, brought up to date: a
+   report that arrives meanwhile is recorded first, and nothing new is started.
+
+## Reopened
+
+`REOPENED <your own name> | ... | it said: <stopped at and next>` is the first line of a fresh
+session: your last one stopped at a safe point and FocusShell reopened you. Tell the user in one
+line, then do the `next:` step. The boards hold the rest; resend nothing for it.
+
+`REOPENED lead-<Project> | ... | resend: <task numbers, or none>` (or an extra lead,
+`lead-<Project>-<n>`): that lead was reopened fresh.
+Resend each task named, and each `HALF new` that lead just sent, as `TASK #<n>:` with its brief
+from `briefs/<Project>/<n>.md` and its newest `Stopped at` line. Tell the user in one line. A
+send that fails because the fresh lead has not joined yet goes again once `ListAgents` lists it.

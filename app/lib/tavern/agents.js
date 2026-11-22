@@ -4,7 +4,7 @@
 // An agent: { id, name, role: 'cto'|'pm'|'lead'|'helper', project, state: 'working'|'idle'|
 // 'asking', look: [col, row], asks: [{ kind: 'prompt', id, what } | { kind: 'item', project, n }] }.
 
-import { parseTasks } from '../tasks.js';
+import { parsedTasks } from '../tasks.js';
 
 // The ready-made characters in the art sheet that can be a guest, as [col, row]. The
 // barkeeper (the owner) keeps his own; the CTO and the PM have theirs by default.
@@ -55,7 +55,7 @@ export function demoRobots(projects, seed) {
 }
 
 // What waits on the owner from one project's board: its `?` items, not the owner's own.
-export const waitingItems = md => parseTasks(md || '').filter(t => t.mark === '?' && !t.forOwner).map(t => t.n);
+export const waitingItems = (project, md) => parsedTasks(project, md || '').filter(t => t.mark === '?' && !t.forOwner).map(t => t.n);
 
 // input: {
 //   sessions: [{ id, role: 'cto'|'pm'|'lead', name, project, state }]   state as the tab dot says it:
@@ -70,7 +70,7 @@ export const waitingItems = md => parseTasks(md || '').filter(t => t.mark === '?
 // }
 export function tavernAgents({ sessions = [], prompts = [], tasksMd = {}, helpers = [], picks = {}, skip = [], answered = new Set(), robots = {} }) {
   const out = [], leadOf = new Set();
-  const open = project => waitingItems(tasksMd[project]).filter(n => !answered.has(`${project}#${n}`));
+  const open = project => waitingItems(project, tasksMd[project]).filter(n => !answered.has(`${project}#${n}`));
   const asksFor = (id, project) => [
     ...prompts.filter(p => p.session === id).map(p => ({ kind: 'prompt', id: p.id, what: p.what || '' })),
     ...(project && !leadOf.has(project) && !skip.includes(project) ? open(project).map(n => ({ kind: 'item', project, n })) : []),

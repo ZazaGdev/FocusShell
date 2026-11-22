@@ -33,7 +33,43 @@ export function sessionOfLead(project, lead) {
   return /^[2-5]$/.test(n) ? `${project}:${n}` : project;
 }
 
+// Whether a lead's pane is clear for the owner's words (#2991): an empty Claude Code input
+// box on screen and no permission prompt or question live there. No box at all (a trust or
+// plan dialog, a prompt shape not known, Claude exited to the shell) is not clear, nor is a
+// draft. draft is inputDraft's answer ('' empty, null no box), prompt livePrompt's.
+// noBox lets a pane with no box count as clear (the smoke run's plain shell only).
+export function paneClear(draft, prompt, noBox = false) {
+  if (prompt) return false;
+  return draft === '' || (noBox && draft == null);
+}
+
+// After the click (#2991) the words are typed with no Enter and the lead's box is read
+// (boxAfterLine in ctoline.js gives 'send', 'owner' or 'left'; left is leftLine's answer for a
+// 'left' box). What happens next: 'enter' when the box holds the words alone, 'again' when the
+// owner's own words sit before them (they come back out and wait), 'out' when they stayed at
+// the box's tail (taken back out, not delivered) and 'keep' when they cannot be taken out
+// cleanly (left in the box, not delivered).
+export function boxStep(box, left) {
+  if (box === 'send') return 'enter';
+  if (box === 'owner') return 'again';
+  return left === 'out' ? 'out' : 'keep';
+}
+// Why a request ended at its box check is not delivered: taken back out, or left in the box.
+export function boxFailure(step, lead) {
+  return step === 'keep' ? `not delivered: the words were left unsent in ${lead}'s box; send or clear them there`
+    : `not delivered: the words could not be typed cleanly into ${lead}'s box`;
+}
+
+// The outcomes the page may end a typing request with (#2991): 'typed' only once its Enter
+// went in ('sent'), or one short line saying why the words were not delivered.
+export function doneAllowed(state, outcome) {
+  const o = String(outcome ?? '');
+  if (o === 'typed') return state === 'sent';
+  return /^not delivered: \S/.test(o) && o.length <= 300 && !/[\x00-\x1f\x7f]/.test(o);
+}
+
 // What the CTO is told after the owner's click, typed into its prompt like a card's ANSWER.
+// Any outcome but typed or declined (no pane, not delivered and why) says "not typed".
 export function ctoLine(r, outcome) {
   const what = outcome === 'typed' ? `the owner approved; typed into ${r.lead}: "${r.words}"`
     : outcome === 'declined' ? `the owner declined; nothing typed into ${r.lead}`

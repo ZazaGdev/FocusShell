@@ -25,11 +25,10 @@ Each project's `tasks/<Project>.md` starts with `# <Project> tasks`. One task pe
 - `<who>` is the session on it, `user` for a note. `, for owner` marks something the user
   must test, check or do themselves; it is never sent to a lead.
 - The Board page shows every project in columns by kind (the default: Tests, To-dos,
-  Decide / unblock, Maybe missed, Work, Done), by status (For you, Maybe missed, Ready to
+  Decide / unblock, Work, Done), by status (For you, Ready to
   send, In progress, Done) or one per project. An open for-owner item whose title starts
   with Check, Test, Try, Confirm or Verify goes under Tests, any other under To-dos, so
-  start a for-owner title with that verb when it is a check. Maybe missed holds CTO
-  questions and results the user may have skipped; it is the CTO's, not a board item.
+  start a for-owner title with that verb when it is a check.
   Clicking an item shows its detail lines. A project's own board is a Kanban (Backlog, To
   do for the current version, In progress, Waiting on you, Done) with a Planning tab that
   plans open items into versions.
