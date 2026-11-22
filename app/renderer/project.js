@@ -63,7 +63,7 @@ export function renderProject(root, ctx) {
   const row = t => {
     const notes = byTask[String(t.n)] || [];
     // Click the title to open the item: full details, brief, notes, and editing.
-    const text = h('span', { class: 'ttext', title: 'Open details' }, `#${t.n} ${t.text}`);
+    const text = h('span', { class: 'ttext' }, `#${t.n} ${t.text}`);
     const textBox = h('div', {}, text, t.details.length ? h('span', { class: 'tmore' }, ' · details') : null, tagBadges(h, t), hist(h, t));
     text.onclick = () => ctx.openTask(t);
     const noteBox = h('div', { class: 'tnote-add', style: 'display:none' });
@@ -79,10 +79,10 @@ export function renderProject(root, ctx) {
         notes.length ? h('div', { class: 'tnotes' }, notes.map(n => h('div', { class: 'tnote' }, h('span', { class: 'when' }, n.when), n.text))) : null,
         noteBox),
       h('span', { class: 'tacts' },
-        h('button', { class: 'btn ghost', title: 'Add a note to this task', onclick: () => { noteBox.style.display = 'block'; noteInput.focus(); } }, 'Note'),
+        h('button', { class: 'btn ghost', onclick: () => { noteBox.style.display = 'block'; noteInput.focus(); } }, 'Note'),
         t.mark === 'x'
-          ? h('button', { class: 'btn ghost', title: 'Reopen', onclick: async () => { await deck.setTaskMark(d.name, t.n, ' '); ctx.refresh(); } }, 'Reopen')
-          : h('button', { class: 'btn ghost', title: 'Mark done', onclick: async () => { await deck.setTaskMark(d.name, t.n, 'x'); ctx.refresh(); } }, 'Done')));
+          ? h('button', { class: 'btn ghost', onclick: async () => { await deck.setTaskMark(d.name, t.n, ' '); ctx.refresh(); } }, 'Reopen')
+          : h('button', { class: 'btn ghost', onclick: async () => { await deck.setTaskMark(d.name, t.n, 'x'); ctx.refresh(); } }, 'Done')));
   };
   const groups = GROUPS.map(([mark, label]) => {
     const list = tasks.filter(t => t.mark === mark);

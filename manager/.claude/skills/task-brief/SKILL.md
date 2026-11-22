@@ -37,9 +37,12 @@ Your words: "<the user's request, verbatim, including voice errors>"
 Goal: <one sentence>
 Why: <only if the user said or the conversation made it plain; otherwise omit the line>
 Where to look: <file paths you confirmed exist, or "none confirmed">
+Shape: <a few lines: which parts, where each lives, how they connect; omit when nothing to say>
+Catches: <what could go wrong that the code may not show; omit when nothing to say>
 Out of scope: <what not to touch>; no features, refactors or clean-up beyond the goal
 Done when: <a check taken from the user's words> | agent proposes one, states it, then runs it
 Effort: <low|medium|high|xhigh|max, only when the user named one; otherwise omit the line>
+Helper: <model and effort for the coding, only when the user named one; otherwise omit the line>
 Guesses:
 - <guess> (decides what gets built: yes|no)
 ```
@@ -57,8 +60,18 @@ Guesses:
   which feature, which behaviour, which data, anything hard to undo. Wording and
   obvious readings are "no". When unsure, mark "yes": a question costs less than a
   wrong build.
+- **Shape and Catches give the lead what it would not see alone (#2780).** The lead designs
+  the change and a builder agent writes the code from the lead's plan. `Shape:` is the rough
+  structure of the feature: which parts, where each lives, how they connect, taken from the
+  user's words or the project files (anything more is a guess). `Catches:` is what could go
+  wrong that the code may not show: a rule from the project's "easy to break" list or
+  `docs/HISTORY.md`, an earlier task that failed the same way, another lead working in the
+  same files. Leave either out when there is nothing to say.
 - **The lead picks the effort level (#2681).** Write `Effort:` only when the user named a
   level for this task ("do this one at max"); the lead's own guide decides otherwise.
+- **The lead picks the builder (#2780).** Write `Helper: <model> <effort>` only when the user
+  named a model or level for the coding ("have Opus write it"); the lead's own guide decides
+  otherwise.
 - **No examples section.** Point to an existing file that shows the pattern instead.
 - **Small, clear requests pass through almost unchanged.** They still get "Your words",
   "Goal" and "Done when".

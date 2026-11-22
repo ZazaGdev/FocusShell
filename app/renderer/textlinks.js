@@ -39,7 +39,7 @@ export function linkChips(links, { max = 3, ...opts } = {}) {
     oncontextmenu: l.file ? e => folderMenu(e, l.href) : null }, l.label);
   const el = h('div', { class: 'lchips' }, links.slice(0, max).map(chip));
   if (links.length > max) {
-    const more = h('button', { class: 'lchip more', title: 'Show every link', onclick: e => { e.stopPropagation(); more.replaceWith(...links.slice(max).map(chip)); } }, `+${links.length - max} more`);
+    const more = h('button', { class: 'lchip more', onclick: e => { e.stopPropagation(); more.replaceWith(...links.slice(max).map(chip)); } }, `+${links.length - max} more`);
     el.append(more);
   }
   return el;
@@ -54,7 +54,7 @@ export function folderMenu(e, target) {
   e.preventDefault(); e.stopPropagation();
   closeMenu();
   menu = h('div', { class: 'tabmenu linkmenu' }, h('div', { class: 'tml', title: target }, target),
-    h('button', { class: 'tmi', onclick: () => { closeMenu(); window.deck.openPath(target); } }, 'Open containing folder'));
+    h('button', { class: 'tmi', onclick: () => { closeMenu(); window.deck.openPath(target, 'folder'); } }, 'Open containing folder'));
   menu.style.left = `${Math.max(4, Math.min(e.clientX, innerWidth - 330))}px`; menu.style.top = `${Math.min(e.clientY + 2, innerHeight - 80)}px`;
   document.body.append(menu);
   addEventListener('mousedown', outside, true); addEventListener('keydown', esc, true);

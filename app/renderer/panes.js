@@ -8,7 +8,6 @@ import * as T from './terminal.js';
 import * as C from './code.js';
 import { h, icon, toast } from './dom.js';
 import { openSketch } from './sketch.js';
-import { missedButton } from './missed.js';
 import { statusButton } from './status.js';
 import { dragGutter } from './layout-ui.js';
 import { MOD_NAME } from '../lib/platform.js';
@@ -57,7 +56,7 @@ export function panes(a) {
     // Every project pane opens or closes VS Code beside itself, like the tab's </> button.
     const code = mgr || id === PM ? null : h('button', { class: C.isOpen(id) ? 'on' : '', title: C.isOpen(id) ? 'Close VS Code' : 'Open VS Code beside the lead',
       onclick: () => { if (C.isOpen(id)) C.closeCode(id); else C.openCode(id, a.deck, a.render); a.render(); } }, icon('code'));
-    const acts = h('span', { class: 'pa' }, mgr ? a.wbButton(id) : null, mgr && a.settings.showMissed ? missedButton(id) : null, mgr ? statusButton(id) : null, foldBtn, find, top, last, code, sketch, end2,
+    const acts = h('span', { class: 'pa' }, mgr ? a.wbButton(id) : null, mgr ? statusButton(id) : null, foldBtn, find, top, last, code, sketch, end2,
       !mgr && a.view === 'split' ? h('button', { title: 'Open on its own', onclick: () => { a.view = 'single'; a.single = id; a.render(); } }, icon('popout')) : null,
       !mgr && a.view === 'split' ? h('button', { title: 'Remove from split', onclick: () => a.toggleInSplit(id) }, icon('x')) : null);
     const head = h('div', { class: 'ph', ondblclick: () => { if (!mgr) { a.view = 'single'; a.single = id; a.render(); } } },

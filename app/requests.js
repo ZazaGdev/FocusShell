@@ -5,7 +5,8 @@ import { Notification } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { requestModel, sessionName } from './lib/sessions.js';
-import { parseRequest, sessionOfLead, ctoLine, EXPIRES } from './lib/ownerwords.js';
+import { parseRequest, sessionOfLead, ctoLine, doneAllowed, EXPIRES } from './lib/ownerwords.js';
+import { chunksOf, CHUNK_GAP } from './lib/ctoline.js';
 import { laterToasts, shouldToast } from './lib/toasts.js';
 import { runPane } from './lib/deckpanes.js';
 
@@ -74,9 +75,23 @@ export function registerRequests(d) {
   // The owner's words (#228): a request from ask-owner.ps1 waits here as a card. Only the
   // owner's click (words:approve, with the request's id) types its stored words into the
   // lead's pane; the page never sends the text. Each request is used once; a day old, it goes.
+  // After the click (#2991) a request moves to wordsTyping, with its state: 'held' (the page
+  // waits for the lead's pane to be clear), 'typing' (the words are in the box, no Enter yet)
+  // or 'sent' (Enter went in; the page looks for the words in the lead's own log). Its card
+  // stays on screen until words:done or a failure here ends it, and every end is logged.
   const wordsWaiting = new Map(); // id -> request
+  const wordsTyping = new Map();  // id -> { ...request, state }
   const wordsOut = (id, text) => { try { fs.writeFileSync(path.join(P.requests, `words-${id}.out`), text); } catch { /* the CTO hears from the card */ } };
-  const wordsChanged = () => send('words:changed', [...wordsWaiting.values()]);
+  const wordsChanged = () => send('words:changed', [...wordsWaiting.values(), ...wordsTyping.values()]);
+  const wordsEnd = (r, outcome) => {
+    wordsTyping.delete(r.id);
+    logRequest(`words-${r.id} ${outcome === 'typed' ? `typed into ${r.lead} and arrived` : outcome}`);
+    wordsOut(r.id, outcome);
+    wordsChanged();
+    return { outcome, cto: ctoLine(r, outcome) };
+  };
+  const leadPane = r => { const s = sessions.get(sessionOfLead(r.project, r.lead)); return s && s.alive ? s : null; };
+  const pause = ms => new Promise(res => setTimeout(res, ms));
   function takeWords(id, file) {
     const body = read(file);
     try { fs.unlinkSync(file); } catch { return; }
@@ -100,34 +115,101 @@ export function registerRequests(d) {
   }, 15000);
   setInterval(() => {
     for (const [id, r] of wordsWaiting) if (Date.now() - r.created > EXPIRES) { wordsWaiting.delete(id); logRequest(`words-${id} expired`); wordsOut(id, 'expired'); wordsChanged(); }
+    for (const r of [...wordsTyping.values()]) if (Date.now() - r.created > EXPIRES) wordsEnd(r, 'expired');
   }, 60000);
-  ipcMain.handle('words:list', () => [...wordsWaiting.values()]);
+  // A page that just loaded (boot) has no run for a clicked request (#2991): one still held
+  // waits for a click again; one whose words were already going in ends not delivered.
+  ipcMain.handle('words:list', (_e, boot) => {
+    if (boot) {
+      for (const r of [...wordsTyping.values()]) {
+        if (r.state !== 'held') { wordsEnd(r, "not delivered: the app's window reloaded while typing"); continue; }
+        wordsTyping.delete(r.id);
+        const { state: _held, ...waiting } = r;
+        wordsWaiting.set(r.id, waiting);
+        logRequest(`words-${r.id} held when the window reloaded; waiting for a click again`);
+      }
+    }
+    return [...wordsWaiting.values(), ...wordsTyping.values()];
+  });
   // The smoke run files requests as ask-owner.ps1 would, and reads the answers it gets.
   ipcMain.handle('smoke:words', (_e, id, body) => { if (!SMOKE) return null; fs.mkdirSync(P.requests, { recursive: true }); const f = path.join(P.requests, `words-${id}.req`); fs.writeFileSync(f, body); takeWords(id, f); return read(path.join(P.requests, `words-${id}.out`), null); });
   ipcMain.handle('smoke:words-out', (_e, id) => (SMOKE ? read(path.join(P.requests, `words-${id}.out`), null) : null));
-  ipcMain.handle('words:approve', async (_e, id) => {
+  // The click (#2991): the request is held for the page, which types it once the lead's pane
+  // is clear (words:type, words:enter, words:erase) and ends it with words:done. The page
+  // sends only the id; the words typed are always the stored ones.
+  ipcMain.handle('words:approve', (_e, id) => {
     const r = wordsWaiting.get(String(id));
-    if (!r) return { outcome: 'gone' };
+    if (!r) { logRequest(`words-${String(id).replace(/[^\w-]/g, '').slice(0, 64)} clicked but no longer waiting`); return { outcome: 'gone' }; }
     wordsWaiting.delete(r.id);
-    const s = sessions.get(sessionOfLead(r.project, r.lead));
-    let outcome = 'typed';
-    if (!s || !s.alive) outcome = `no ${r.lead} pane is open`;
-    else {
-      s.typedAt = s.total; s.used = true;
-      s.pty.write(r.words);
-      await new Promise(res => setTimeout(res, 150));
-      s.pty.write('\r');
+    if (!leadPane(r)) {
+      const outcome = `no ${r.lead} pane is open`;
+      logRequest(`words-${r.id} ${outcome}`);
+      wordsOut(r.id, outcome);
+      wordsChanged();
+      return { outcome, cto: ctoLine(r, outcome) };
     }
-    logRequest(`words-${r.id} ${outcome === 'typed' ? `typed into ${r.lead} on the owner's click` : outcome}`);
-    wordsOut(r.id, outcome);
+    wordsTyping.set(r.id, { ...r, state: 'held' });
+    logRequest(`words-${r.id} approved on the owner's click`);
     wordsChanged();
-    return { outcome, cto: ctoLine(r, outcome) };
+    return { session: sessionOfLead(r.project, r.lead) };
   });
-  ipcMain.handle('words:decline', (_e, id) => {
-    const r = wordsWaiting.get(String(id));
+  // Types the stored words in pieces, no Enter. A pane gone or a write that throws ends the
+  // request here, with its outcome, never silently.
+  ipcMain.handle('words:type', async (_e, id) => {
+    const r = wordsTyping.get(String(id));
+    if (!r || r.state !== 'held') return { outcome: 'gone' };
+    const s = leadPane(r);
+    if (!s) return wordsEnd(r, `no ${r.lead} pane is open`);
+    r.state = 'typing';
+    try {
+      s.typedAt = s.total; s.used = true;
+      for (const [i, part] of chunksOf(r.words).entries()) {
+        if (i) await pause(CHUNK_GAP);
+        if (!s.alive) throw new Error('the pane closed');
+        s.pty.write(part);
+      }
+    } catch (e) { return wordsEnd(r, `not delivered: the words could not be typed into ${r.lead} (${String(e && e.message || e).slice(0, 120)})`); }
+    wordsChanged();
+    return { ok: true };
+  });
+  // The Enter, once the page saw the box holds the words alone.
+  ipcMain.handle('words:enter', (_e, id) => {
+    const r = wordsTyping.get(String(id));
+    if (!r || r.state !== 'typing') return { outcome: 'gone' };
+    const s = leadPane(r);
+    if (!s) return wordsEnd(r, `no ${r.lead} pane is open`);
+    try { s.pty.write('\r'); } catch (e) { return wordsEnd(r, `not delivered: the Enter could not be typed into ${r.lead} (${String(e && e.message || e).slice(0, 120)})`); }
+    r.state = 'sent';
+    logRequest(`words-${r.id} sent into ${r.lead}; looking for them in its log`);
+    wordsChanged();
+    return { ok: true };
+  });
+  // Takes the typed words back out of the box (one Backspace per character); the request is
+  // held again, or ended by the page with words:done.
+  ipcMain.handle('words:erase', (_e, id) => {
+    const r = wordsTyping.get(String(id));
+    if (!r || r.state !== 'typing') return { outcome: 'gone' };
+    const s = leadPane(r);
+    if (!s) return wordsEnd(r, `no ${r.lead} pane is open`);
+    try { s.pty.write('\x7f'.repeat([...r.words].length)); } catch (e) { return wordsEnd(r, `not delivered: the words could not be taken back out of ${r.lead}'s box (${String(e && e.message || e).slice(0, 120)})`); }
+    r.state = 'held';
+    wordsChanged();
+    return { ok: true };
+  });
+  ipcMain.handle('words:done', (_e, id, outcome) => {
+    const r = wordsTyping.get(String(id));
     if (!r) return { outcome: 'gone' };
-    wordsWaiting.delete(r.id);
-    logRequest(`words-${r.id} declined by the owner`);
+    if (!doneAllowed(r.state, outcome)) return { outcome: 'refused' };
+    return wordsEnd(r, String(outcome));
+  });
+  // Decline (or the card's X) works while a request waits, and while it is held after the
+  // click; once its words are being typed it cannot be taken back here.
+  ipcMain.handle('words:decline', (_e, id) => {
+    const r = wordsWaiting.get(String(id)) || wordsTyping.get(String(id));
+    if (!r) return { outcome: 'gone' };
+    if (r.state && r.state !== 'held') return { outcome: 'busy' };
+    wordsWaiting.delete(r.id); wordsTyping.delete(r.id);
+    logRequest(`words-${r.id} declined by the owner${r.state ? ' while it was held' : ''}`);
     wordsOut(r.id, 'declined');
     wordsChanged();
     return { outcome: 'declined', cto: ctoLine(r, 'declined') };
@@ -177,5 +259,7 @@ export function registerRequests(d) {
     const m = r.out.match(/Request ([0-9a-f]{12})\./);
     return m ? m[1] : null;
   });
+  // The smoke run's fake Claude Code screen (#3015): its full path, to run in a fake lead's pane.
+  ipcMain.handle('smoke:fake-claude', () => (SMOKE ? path.join(APP_DIR, 'smoke', 'fake-claude.mjs') : null));
   return { watchRequests };
 }

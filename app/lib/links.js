@@ -44,9 +44,9 @@ export function findLinks(text) {
     out.push({ index: m.index, text: spacedPath(s, m.index, m[0]) });
   }
   // A quoted path can contain what looked like a second link; keep only the outer one.
-  // A path after "Open in VS Code:" (how leads offer a file) opens in VS Code when clicked.
+  // A path after "Open in VS Code:" (how leads offer a file) opens in VS Code when clicked; a web page goes to the browser instead.
   return out.filter((l, i) => !out.some((o, j) => j !== i && o.quoted && l.index > o.index && l.index < o.index + o.text.length))
-    .map(l => CODE_RE.test(s.slice(Math.max(0, l.index - 24), l.index)) ? { ...l, code: true } : l);
+    .map(l => CODE_RE.test(s.slice(Math.max(0, l.index - 24), l.index)) && !isWebPage(l.text) ? { ...l, code: true } : l);
 }
 const CODE_RE = /open in vs ?code:\s*["']?$/i;
 
@@ -166,9 +166,10 @@ export function wrappedUrl(link, cuts, pos, cols, slack = 8, text = '') {
 
 // Files the Code pane cannot usefully open (#166): a click shows them selected in Explorer.
 // A file of a program of the owner's own (OWN_APP_FILES, #317) belongs to that program, so it goes
-// there too, and so does a web page (.html, #318), opened from Explorer in a browser.
+// there too. A web page (.html, #318) is kept out of the Code pane too, but a click opens it in the browser.
 const BINARY_RE = /\.(html?|apk|aab|ipa|exe|msi|msix|appx|dll|so|dylib|bin|dmg|iso|img|zip|7z|rar|tar|gz|tgz|bz2|xz|jar|aar|class|png|jpe?g|gif|bmp|webp|ico|tiff?|heic|psd|mp4|mov|mkv|avi|webm|wmv|m4v|mp3|wav|flac|ogg|m4a|aac|pdf|docx?|xlsx?|pptx?|ttf|otf|woff2?|db|sqlite|keystore|jks|p12)$/i;
 const OWN_RE = OWN_APP_FILES.length ? new RegExp(`\\.(${OWN_APP_FILES.join('|')})$`, 'i') : null;
+export function isWebPage(file) { return /\.html?$/i.test(String(file)); }
 export function opensInExplorer(file) { return BINARY_RE.test(String(file)) || !!(OWN_RE && OWN_RE.test(String(file))); }
 
 // A bare file name with an extension, such as "thumbnail-final.jpg", not part of a path or

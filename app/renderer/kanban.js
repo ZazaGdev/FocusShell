@@ -7,6 +7,7 @@
 import { parsePlan, planOf, byPriority, currentVersion } from '../lib/plan.js';
 import { planningSection } from './planning.js';
 import { hist, tagBadges } from './home.js';
+import { doneOf, byClosed } from '../lib/tasks.js';
 
 export const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const tabOf = new Map(), verOf = new Map(); // per project: tab, version filter
@@ -57,11 +58,12 @@ export function kanbanSection(c, items) {
   const list = items.map(({ t }) => t).filter(t => !ver || planOf(t).version === ver);
   const card = (t, col) => {
     const pl = planOf(t), kind = c.ownerKind(t);
-    return h('div', { class: 'bitem kcard', draggable: 'true', title: 'Open details, or drag to another column',
+    return h('div', { class: 'bitem kcard', draggable: 'true',
       ondragstart: e => { drag = { t, from: col }; e.dataTransfer.setData('text/plain', String(t.n)); e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('dragging'); const cols = e.currentTarget.closest('.kcols'); setTimeout(() => cols.classList.add('dragging')); },
       ondragend: e => { drag = null; e.currentTarget.classList.remove('dragging'); document.querySelectorAll('.kcol.drop').forEach(x => x.classList.remove('drop')); document.querySelectorAll('.kcols.dragging').forEach(x => x.classList.remove('dragging')); },
       onclick: e => { if (!e.target.closest('button')) c.showTask(p, t); } },
       h('div', { class: 'btitle' }, t.text), hist(h, t),
+      c.showDone && col === 'done' && doneOf(t) ? h('div', { class: 'bclosed' }, `Closed ${doneOf(t)}`) : null,
       h('div', { class: 'brow' },
         prioBadge(h, t, v => setKey(t.n, 'Priority', v)),
         kind ? h('span', { class: 'kind ' + kind }, { decide: 'Decide', unblock: 'Unblock', test: 'Test', do: 'Do' }[kind]) : null,
@@ -79,8 +81,10 @@ export function kanbanSection(c, items) {
     }
   };
   const cols = h('div', { class: 'kcols' }, COLS.map(([key, name, st]) => {
-    const mine = list.filter(t => colOf(t, cv, c.ownerKind) === key).sort(c.sortCmp || byPriority);
-    const max = key === 'done' ? 12 : 60;
+    // Show done (#2988): the Done lane holds every done item, newest closed first.
+    const every = key === 'done' && c.showDone;
+    const mine = list.filter(t => colOf(t, cv, c.ownerKind) === key).sort(every ? byClosed : c.sortCmp || byPriority);
+    const max = every ? Infinity : key === 'done' ? 12 : 60;
     const hint = { backlog: cv ? `Open, not in ${cv}` : 'Open', todo: cv ? `Open, in version ${cv}` : 'Add a version on Planning', doing: 'Drop here to send to the CTO', you: 'From lead reports', done: 'Drop here to mark done' }[key];
     return h('section', { class: 'lane kcol', 'data-col': key,
       ondragover: e => { if (drag && canDrop(drag.from, key, drag.t, cv)) { e.preventDefault(); e.currentTarget.classList.add('drop'); } },

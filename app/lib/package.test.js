@@ -43,6 +43,15 @@ test('the installer ships the lead plugin and its effort skills (#2681)', () => 
   assert.equal(JSON.parse(fs.readFileSync(path.join(APP, 'lead-plugin', '.claude-plugin', 'plugin.json'), 'utf8')).name, 'focusshell');
 });
 
+// #2780: a lead hands the coding to focusshell:builder, which ships in the same plugin.
+test('the lead plugin ships the builder agent and its report lines (#2780)', () => {
+  const agent = fs.readFileSync(path.join(APP, 'lead-plugin', 'agents', 'builder.md'), 'utf8');
+  assert.match(agent, /^name: builder\r?$/m);
+  assert.match(agent, /^model: sonnet\r?$/m);
+  assert.match(agent, /^effort: medium\r?$/m);
+  for (const line of ['STAGE DONE |', 'QUESTION |', 'BUILT |']) assert.ok(agent.includes(line), `builder.md has no ${line} line`);
+});
+
 // #388: the CTO's rules run these from the data folder, so an installed copy needs them.
 test('the installer seed ships the pane scripts and their module (#388)', () => {
   const seed = fs.readFileSync(path.join(APP, 'build', 'seed.mjs'), 'utf8');

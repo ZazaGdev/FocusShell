@@ -2,7 +2,7 @@
 // written to it in one go (a 2,000 character RECORDING line arrived as its last 60 characters),
 // so a line goes in short pieces. And a line that must reach the CTO is checked against the
 // CTO's own Claude Code log afterwards.
-import { RULE, BOX_LINE } from './prompts.js';
+import { boxEdge, BOX_LINE } from './prompts.js';
 
 export const CHUNK = 200;   // characters per write
 export const CHUNK_GAP = 30; // ms between writes
@@ -51,7 +51,7 @@ const VOICE = /^\s{20,}(listening|connecting)(…|\.\.\.)\s*$/i;
 export function voiceLive(rows) {
   const lines = rows.map(l => String(l).replace(/\s+$/, ''));
   for (let i = lines.length - 1; i > 1; i--) {
-    if (BOX_LINE.test(lines[i]) && RULE(lines[i - 1])) return VOICE.test(rows[i - 2] ?? '');
+    if (BOX_LINE.test(lines[i]) && boxEdge(lines[i - 1])) return VOICE.test(rows[i - 2] ?? '');
   }
   return false;
 }

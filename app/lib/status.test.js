@@ -34,6 +34,27 @@ test('runningSubagents: a background subagent runs until Claude Code marks its m
   assert.equal(runningSubagents(undefined), 0);
 });
 
+import { subagentMetas } from '../background.js';
+test('subagentMetas: a finished subagent resumed with SendMessage counts again while it runs (#2780)', () => {
+  const sub = fs.mkdtempSync(path.join(os.tmpdir(), 'subagents-'));
+  try {
+    const file = path.join(sub, 'agent-a1.meta.json'), ended = new Map();
+    const write = (meta, at) => { fs.writeFileSync(file, JSON.stringify(meta)); fs.utimesSync(file, at, at); };
+    const bg = { agentType: 'focusshell:builder', requestShape: 'background' };
+    write(bg, new Date('2026-11-10T10:00:00Z'));
+    assert.equal(runningSubagents(subagentMetas(sub, ended)), 1, 'building');
+    write({ ...bg, finished: true }, new Date('2026-11-10T10:01:00Z'));
+    assert.equal(runningSubagents(subagentMetas(sub, ended)), 0, 'handed back');
+    assert.deepEqual(subagentMetas(sub, ended), [null], 'an unchanged finished file is not read again');
+    write(bg, new Date('2026-11-10T10:05:00Z'));
+    assert.equal(runningSubagents(subagentMetas(sub, ended)), 1, 'resumed with "go on": running again');
+    fs.rmSync(file);
+    assert.deepEqual(subagentMetas(sub, ended), []);
+    assert.equal(ended.size, 0, 'a gone file is forgotten');
+    assert.deepEqual(subagentMetas(path.join(sub, 'none'), ended), [], 'no subagents folder');
+  } finally { fs.rmSync(sub, { recursive: true, force: true }); }
+});
+
 // Output at these times (ms), one step per chunk; the state after the last.
 const fed = times => times.reduce((o, t) => outputStep(o, t), null);
 test('printing: a turn\'s steady spinner lights the dot, an idle pane\'s burst never does (#2706)', () => {

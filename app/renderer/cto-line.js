@@ -20,8 +20,14 @@ let timer = null;
 // stop, so a line typed then took the spoken words with its Enter: every line waits.
 let talking = () => false;
 export const setTalking = fn => { talking = fn; };
+// A pane held while it reopens fresh (#3016): its lines wait, so nothing is typed into a session
+// that is restarting, and go in order once it is released.
+const held = new Set();
+export const holdPane = id => { held.add(id); };
+export const releasePane = id => { held.delete(id); };
+export const typingInto = id => typing.has(id); // a line is going into the pane right now
 export async function drafting(id) {
-  if (talking() || T.typingIn(id).ago < QUIET) return true;
+  if (held.has(id) || talking() || T.typingIn(id).ago < QUIET) return true;
   const rows = await T.screen(id, true);
   return !!livePrompt(rows) || !!inputDraft(rows) || voiceLive(rows);
 }
@@ -29,9 +35,10 @@ export async function drafting(id) {
 // Types the line now if the owner is not writing there, else holds it. Resolves 'sent' or 'held'.
 // onSent(at) is called once the line has gone in with its Enter, at the time it started;
 // onLeft() when it stayed in the box without one and could not be taken back out (#1340).
-export async function typeLine(deck, id, line, onSent, onLeft) {
-  const q = queues.get(id) || [];
-  queues.set(id, [...q, { line, onSent, onLeft }]);
+// opts.first puts the line at the front of the pane's queue (#3016: a reopened CTO's REOPENED line).
+export async function typeLine(deck, id, line, onSent, onLeft, opts = {}) {
+  const q = queues.get(id) || [], item = { line, onSent, onLeft };
+  queues.set(id, opts && opts.first ? [item, ...q] : [...q, item]);
   if (q.length || typing.has(id) || await drafting(id)) { tick(deck); return 'held'; }
   flushOne(deck, id);
   if (queues.has(id)) tick(deck);
@@ -72,8 +79,8 @@ async function flushOne(deck, id) {
 // shows it (a long line Claude Code folds into "[Pasted text]") gets its Enter only if the
 // owner neither typed nor talked since the line started; otherwise it is left unsent. A box
 // that was there before the line and is gone now (its ❯ row pushed off a short pane) never
-// gets the Enter (#1340).
-async function boxNow(id, line, at, hadBox) {
+// gets the Enter (#1340). The owner's words typed into a lead's pane use it too (#2991).
+export async function boxNow(id, line, at, hadBox) {
   let r = 'wait', draft = null;
   for (let i = 0; i < 14; i++) {
     draft = inputDraft(await T.screen(id, true));

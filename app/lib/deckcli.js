@@ -4,13 +4,13 @@
 // notes/<Project>.md for a project's card notes, notes.md for Me's.
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseTasks, addTaskLine, setMark, setResult, setWho, addDetail, setTaskText, addNoteLine, itemTags, toggleTag, SHARED_START } from './tasks.js';
+import { parseTasks, addTaskLine, setMark, setResult, setWho, addDetail, setStart, setTaskText, addNoteLine, itemTags, toggleTag, SHARED_START } from './tasks.js';
 import { nextShared, boardOf } from './counter.js';
 import { relinkShots } from './shots.js';
 import { PANE_USAGE } from './deckpanes.js';
 
 // Verbs whose first argument is an item's board; with a shared-counter number it may be left out.
-const ON_ITEM = new Set(['show', 'mark', 'result', 'detail', 'title', 'answer', 'tag', 'set', 'due', 'someday', 'move']);
+const ON_ITEM = new Set(['show', 'mark', 'result', 'detail', 'title', 'answer', 'tag', 'set', 'due', 'start', 'someday', 'move']);
 import { setSomeday, setSchedule, rollRepeat, repeatOf } from './me.js';
 import { parsePlan, setPlan, setTaskKey } from './plan.js';
 import { update } from './boardio.js';
@@ -21,6 +21,7 @@ export const USAGE = `deck <verb> ...   (put text in single quotes; Windows path
   show    <Board> [<n>]                     print a board, or one item with its details
   add     <Board> '<title>' [--who <session>] [--owner] [--detail '<text>']... [--tags 'A, B']
           [--priority 1-4] [--version <name>] [--due 'YYYY-MM-DD [HH:MM]'] [--repeat '<N> day|week'] [--someday]
+          [--start YYYY-MM-DD]
   mark    <Board> <n> open|working|needs|blocked|done [--result '<short result>'] [--who <session>]
   result  <Board> <n> '<short result>'
   detail  <Board> <n> '<text>'              adds a detail line under the item
@@ -30,6 +31,7 @@ export const USAGE = `deck <verb> ...   (put text in single quotes; Windows path
   set     <Board> <n> Version|Priority|Tags|State '<value>'   ('-' clears it)
   version <Board> <name> current|done|planned|remove
   due     Me <n> YYYY-MM-DD|- [HH:MM] [--repeat '<N> day|week']
+  start   <Board> <n> YYYY-MM-DD|-          the CTO hands it out on that day, not before ('-' clears it)
   someday Me <n> on|off
   move    <From> <n> <To>                   copies the item to <To>, closes it on <From>
   note    <Project>|Me '<text>'             a note (card notes start '#<n> CTO: ...')
@@ -72,6 +74,13 @@ function clean(v, what) {
   const one = s.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!one) throw new Error(`${what} is empty`);
   return one;
+}
+// A real calendar day, YYYY-MM-DD (#2836).
+function day(v, what) {
+  const s = String(v ?? ''), m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (!m || d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) throw new Error(`"${s}" is not a date: YYYY-MM-DD`);
+  return s;
 }
 const num = v => { const n = Number(v); if (!Number.isInteger(n) || n < 1) throw new Error(`"${v}" is not an item number`); return n; };
 
@@ -133,6 +142,7 @@ export function run(argv, ctx) {
         if (opt.version) out = setTaskKey(out, n, 'Version', clean(opt.version, '--version'));
         if (opt.due) out = setSchedule(out, n, schedule(opt.due, opt.repeat));
         if (opt.someday) out = setSomeday(out, n, true);
+        if (opt.start) out = setStart(out, n, day(opt.start, '--start'));
         return out;
       });
       // A for-owner item needs What and To do lines to make sense a day later (#236).
@@ -204,6 +214,12 @@ export function run(argv, ctx) {
       const day = need(2, 'the date');
       change(b, md => { itemOf(md, n, b.name); return setSchedule(md, n, day === '-' ? { day: '' } : schedule(`${day}${pos[3] ? ` ${pos[3]}` : ''}`, opt.repeat)); });
       return `${b.name} #${n} ${day === '-' ? 'has no time' : `due ${day}${pos[3] ? ` ${pos[3]}` : ''}`}`;
+    }
+    case 'start': {
+      const b = boardFile(ctx.data, need(0, 'the board')), n = num(need(1, 'the number'));
+      const v = need(2, 'the date'), d = v === '-' ? '' : day(v, 'the date');
+      change(b, md => { itemOf(md, n, b.name); return setStart(md, n, d); });
+      return d ? `${b.name} #${n} starts ${d}` : `${b.name} #${n} has no start date`;
     }
     case 'someday': {
       const b = boardFile(ctx.data, need(0, 'the board')), n = num(need(1, 'the number')), on = !/^off$/i.test(need(2, 'on or off'));

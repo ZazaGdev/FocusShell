@@ -73,7 +73,7 @@ export function titleBar(a) {
       const runs = [n, ...EXTRA_LEADS.map(k => extraId(n, k))].filter(id => a.started.has(id) && !T.isExited(id)).length;
       const tc = runs > 1 ? h('span', { class: 'tc', title: `${runs} terminal${runs > 1 ? 's' : ''} running` }, String(runs)) : null;
       const cb = h('span', { class: 'cb' + (C.isOpen(n) ? ' on' : ''), title: C.isOpen(n) && active ? 'Close VS Code' : 'Open VS Code beside the lead' }, icon('code'));
-      return h('div', { class: 'tab' + (active ? ' active' : '') + (inSplit ? ' insplit' : '') + (inGroup ? ' ingrp' : ''), title: `Click to open, ${MOD_NAME}+click to add to a split`, 'data-tip-delay': 1000, onclick: e => {
+      return h('div', { class: 'tab' + (active ? ' active' : '') + (inSplit ? ' insplit' : '') + (inGroup ? ' ingrp' : ''), title: `Click to open, ${MOD_NAME}+click to add to a split`, onclick: e => {
         if (x.contains(e.target)) { a.closeTab(n); return; }
         // The </> button opens VS Code beside this lead, showing the project if it is not on screen.
         if (cb.contains(e.target)) { if (C.isOpen(n) && active) C.closeCode(n); else { if (!active) { a.view = 'single'; a.single = n; } C.openCode(n, a.deck, a.render); } a.render(); return; }

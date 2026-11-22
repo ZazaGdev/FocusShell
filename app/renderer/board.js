@@ -3,7 +3,7 @@
 import { kanbanSection } from './kanban.js';
 import { helperButton } from './helper.js';
 import { planOf } from '../lib/plan.js';
-import { doneOf } from '../lib/tasks.js';
+import { doneOf, byClosed } from '../lib/tasks.js';
 import { hist, tagBadges } from './home.js';
 import { filterDrop } from './filterdrop.js';
 import { linkChips } from './textlinks.js';
@@ -34,7 +34,9 @@ const LANES = [
 // Home's columns (#167): by kind (the default: Tests, To-dos, Decide / unblock, Work and
 // Done), by status (the lanes) or one per project. Each column scrolls on its own. The
 // project dropdown and the priority toggles filter every view; by status, the kind chips
-// filter For you. Done stays a thin rail until opened, then shows the latest 20.
+// filter For you. Done stays a thin rail until opened, then shows the latest 20. The Show done
+// filter (#2988) opens it with every closed item, adds them to By project and to a project's
+// Done lane, and shows each one's closed date.
 const VIEWS = [['kind', 'By kind'], ['status', 'By status'], ['proj', 'By project']];
 const KINDS = [['all', 'All'], ['test', 'Tests'], ['do', 'To-dos'], ['ask', 'Decide / unblock']];
 const PRIOS = [[1, 'P1'], [2, 'P2'], [3, 'P3'], [4, 'P4'], [0, 'No priority']];
@@ -107,12 +109,13 @@ export function boardSection(c) {
   const kindCount = k => (kindIs('decide', k) ? prompts.length : 0) + items.filter(({ t }) => ownerKind(t) && kindIs(ownerKind(t), k)).length;
   const kinds = c.tab === 'status' ? h('select', { class: 'bsel bkind' + (c.kind && c.kind !== 'all' ? ' set' : ''), title: 'Which of For you to show', onchange: e => c.setKind(e.target.value) },
     KINDS.map(([k, name]) => h('option', { value: k, selected: (c.kind || 'all') === k }, k === 'all' ? 'All types' : `${name} (${kindCount(k)})`))) : null;
-  const chips = h('div', { class: 'bchips' }, c.focus ? null : views, pick, c.focus ? null : prios, tags, kinds, sorter);
+  const showDone = h('button', { class: 'bsel bshowdone' + (c.showDone ? ' set' : ''), 'aria-pressed': String(!!c.showDone), onclick: () => c.setShowDone(!c.showDone) }, 'Show done');
+  const chips = h('div', { class: 'bchips' }, c.focus ? null : views, pick, c.focus ? null : prios, tags, kinds, showDone, sorter);
   // The filters hide behind one button (#403) that shows how many are in use.
-  const inUse = (only.length ? 1 : 0) + (!c.focus && c.prios?.length ? 1 : 0) + (tf.tags.length ? 1 : 0) + (kinds && c.kind && c.kind !== 'all' ? 1 : 0);
+  const inUse = (only.length ? 1 : 0) + (!c.focus && c.prios?.length ? 1 : 0) + (tf.tags.length ? 1 : 0) + (kinds && c.kind && c.kind !== 'all' ? 1 : 0) + (c.showDone ? 1 : 0);
   const shelf = h('div', { class: 'bfilters' + (filtersOpen ? ' open' : '') }, h('div', {}, chips));
-  const fbtn = h('button', { class: 'btn bfbtn' + (filtersOpen ? ' on' : ''), title: filtersOpen ? 'Hide the filters' : 'Show the filters', onclick: () => {
-    filtersOpen = !filtersOpen; shelf.classList.toggle('open', filtersOpen); fbtn.classList.toggle('on', filtersOpen); fbtn.dataset.tip = filtersOpen ? 'Hide the filters' : 'Show the filters';
+  const fbtn = h('button', { class: 'btn bfbtn' + (filtersOpen ? ' on' : ''), onclick: () => {
+    filtersOpen = !filtersOpen; shelf.classList.toggle('open', filtersOpen); fbtn.classList.toggle('on', filtersOpen);
   } }, c.icon('filter'), 'Filters', inUse ? h('span', { class: 'bfcount' }, String(inUse)) : null);
   const bar = [h('div', { class: 'bfbar' }, fbtn), shelf];
 
@@ -120,7 +123,7 @@ export function boardSection(c) {
   const itemEl = (it, lane) => {
     try { return cardEl(it, lane); } catch (e) {
       console.error(`board: ${it.p} #${it.t.n} did not draw`, e);
-      return h('div', { class: 'bitem', title: 'Open details', onclick: () => c.showTask(it.p, it.t) }, h('div', { class: 'btitle' }, it.t.text));
+      return h('div', { class: 'bitem', onclick: () => c.showTask(it.p, it.t) }, h('div', { class: 'btitle' }, it.t.text));
     }
   };
   const cardEl = ({ p, t }, lane) => {
@@ -130,20 +133,22 @@ export function boardSection(c) {
     else if (kind === 'decide') {
       const { options, suggest } = c.optionsOf(t);
       act = options.length ? options.map(o => h('button', { class: 'btn' + (o === suggest ? ' primary' : ''), onclick: () => c.answer(p, t.n, o) }, o)) : null;
-    } else if (kind === 'test' || kind === 'do') act = h('button', { class: 'btn', title: 'Mark done', onclick: () => c.markDone(p, t.n) }, 'Done');
+    } else if (kind === 'test' || kind === 'do') act = h('button', { class: 'btn', onclick: () => c.markDone(p, t.n) }, 'Done');
     const open = e => { if (!e.target.closest('button')) c.showTask(p, t); };
+    // Show done (#2988): the closed date, on its own line so a narrow column does not cut it.
+    const closed = tag => c.showDone && t.mark === 'x' && doneOf(t) ? h(tag, { class: 'bclosed' }, `Closed ${doneOf(t)}`) : null;
     // Compact: one line per item, the title cut short and a small action at the end; the
     // project and number show on hover. A decision still opens the item to answer it.
     if (c.compact) {
       const mini = lane === 'ready' ? h('button', { class: 'mini send', title: `Send to ${p}'s CTO`, onclick: () => c.send(p, t.n) }, '→')
         : kind === 'test' || kind === 'do' ? h('button', { class: 'mini', title: 'Mark done', onclick: () => c.markDone(p, t.n) }, '✓') : null;
       return h('div', { class: 'bitem compact', title: `${t.text}\n${p} #${t.n}${kind ? ' · ' + KIND[kind] : ''}`, onclick: open },
-        kind ? h('span', { class: 'kdot ' + kind }) : null, h('span', { class: 'btitle' }, t.text), mini);
+        kind ? h('span', { class: 'kdot ' + kind }) : null, h('span', { class: 'btitle' }, t.text), closed('span'), mini);
     }
     // A question's links and files (#416), so it can be answered from the card.
     const links = kind === 'decide' || kind === 'unblock' ? linkChips(cardLinks(t), { openFile: c.openMd, toast: c.toast }) : null;
-    return h('div', { class: 'bitem', title: 'Open details', onclick: open },
-      h('div', { class: 'btitle' }, t.text), hist(h, t), links,
+    return h('div', { class: 'bitem', onclick: open },
+      h('div', { class: 'btitle' }, t.text), hist(h, t), closed('div'), links,
       t.result && lane !== 'ready' ? h('div', { class: 'bitres' }, t.result) : null,
       h('div', { class: 'brow' },
         planOf(t).priority ? h('span', { class: 'prio p' + planOf(t).priority }, `P${planOf(t).priority}`) : null, tagBadges(h, t),
@@ -156,7 +161,7 @@ export function boardSection(c) {
   const laneList = (key, kind = c.kind) => {
     const list = items.filter(({ t }) => laneIs(key)(t));
     if (key === 'you') return list.filter(({ t }) => kindIs(ownerKind(t), kind)).sort((a, b) => (added ? 0 : ORDER[ownerKind(a.t)] - ORDER[ownerKind(b.t)]) || cmp(a.t, b.t));
-    if (key === 'done') return list.sort((a, b) => added ? cmp(a.t, b.t) : doneOf(b.t).localeCompare(doneOf(a.t)) || (b.t.date || '').localeCompare(a.t.date || '') || b.t.n - a.t.n);
+    if (key === 'done') return list.sort((a, b) => added && !c.showDone ? cmp(a.t, b.t) : byClosed(a.t, b.t));
     return list.sort((a, b) => cmp(a.t, b.t));
   };
   // One column: a header with its icon, count and a fold button, then its cards in a list that
@@ -164,19 +169,19 @@ export function boardSection(c) {
   // The columns sit in one panel, divided by thin lines (#410).
   const colIcon = st => h('span', { class: 'bcicon ' + (st || 'work') }, c.icon(COL_ICON[st] || 'board'));
   const col = (key, name, st, cards, o = {}) => {
-    const count = o.count ?? cards.length;
-    if (folded.has(key)) return h('section', { class: 'lane bcol brail', 'data-col': key, title: `Show ${name}`, onclick: () => { folded.delete(key); c.rerender(); } },
+    const count = o.count ?? cards.length, keepOpen = key === 'done' && c.showDone;
+    if (folded.has(key) && !keepOpen) return h('section', { class: 'lane bcol brail', 'data-col': key, title: `Show ${name}`, onclick: () => { folded.delete(key); c.rerender(); } },
       h('span', { class: 'bfold' }, c.icon('colopen')), colIcon(st), h('span', { class: 'vt' }, name, h('small', {}, count)));
     return h('section', { class: 'lane bcol' + (o.wide ? ' wide' : ''), 'data-col': key },
       h('header', {}, colIcon(st), h('span', { class: 'bcname' }, name), h('small', {}, count),
-        h('button', { class: 'ptool bfold', title: `Fold ${name}`, onclick: () => { folded.add(key); if (key === 'done') doneAll = false; c.rerender(); } }, c.icon('colfold'))),
+        keepOpen ? null : h('button', { class: 'ptool bfold', title: `Fold ${name}`, onclick: () => { folded.add(key); if (key === 'done') doneAll = false; c.rerender(); } }, c.icon('colfold'))),
       h('div', { class: 'bcl' }, o.top || null, cards.length || o.top?.length ? cards : h('div', { class: 'empty-note' }, 'Nothing here'), o.after || null));
   };
   const sub = (st, name, n) => h('div', { class: 'bsub' }, h('span', { class: 'st-dot ' + st }), name, h('small', {}, n));
   const doneCol = () => {
-    const d = laneList('done');
-    return col('done', 'Done', 'done', (doneAll ? d : d.slice(0, 20)).map(i => itemEl(i, 'done')), { count: d.length,
-      after: !doneAll && d.length > 20 ? h('button', { class: 'more', onclick: () => { doneAll = true; c.rerender(); } }, `Show ${d.length - 20} older`) : null });
+    const d = laneList('done'), every = doneAll || c.showDone;
+    return col('done', 'Done', 'done', (every ? d : d.slice(0, 20)).map(i => itemEl(i, 'done')), { count: d.length,
+      after: !every && d.length > 20 ? h('button', { class: 'more', onclick: () => { doneAll = true; c.rerender(); } }, `Show ${d.length - 20} older`) : null });
   };
   const cols = (...kids) => h('div', { class: 'lanes bcols' + (c.compact ? ' compact' : '') }, kids);
 
@@ -202,17 +207,20 @@ export function boardSection(c) {
   }
 
   // By project: one column per project with items left (anything not done), the most first.
+  // Show done adds each project's done items under a Done divider, newest closed first.
   if (!c.focus) {
     const laneOf = t => LANES.find(l => l[3](t))?.[0];
     const rank = { you: 0, doing: 1, ready: 2 };
-    const list = c.projects.map(p => ({ p: p.name, list: items.filter(i => i.p === p.name && i.t.mark !== 'x') }))
-      .filter(x => x.list.length)
+    const doneL = c.showDone ? laneList('done') : [];
+    const list = c.projects.map(p => ({ p: p.name, list: items.filter(i => i.p === p.name && i.t.mark !== 'x'), done: doneL.filter(i => i.p === p.name) }))
+      .filter(x => x.list.length || x.done.length)
       .sort((a, b) => b.list.length - a.list.length || a.p.localeCompare(b.p));
-    const byProj = h('div', { class: 'lanes bcols byproj' + (c.compact ? ' compact' : '') }, list.length ? list.map(({ p, list }) => {
+    const byProj = h('div', { class: 'lanes bcols byproj' + (c.compact ? ' compact' : '') }, list.length ? list.map(({ p, list, done }) => {
       list.sort((a, b) => (added ? 0 : (rank[laneOf(a.t)] ?? 3) - (rank[laneOf(b.t)] ?? 3)) || cmp(a.t, b.t));
       return h('section', { class: 'lane bcol', 'data-project': p },
         h('header', {}, h('button', { class: 'bproj', title: `${p}'s board`, onclick: () => c.setFocus(p) }, c.dot(p), p), h('small', {}, list.length)),
-        h('div', { class: 'bcl' }, list.map(i => itemEl(i, laneOf(i.t)))));
+        h('div', { class: 'bcl' }, list.map(i => itemEl(i, laneOf(i.t))),
+          done.length ? [sub('done', 'Done', done.length), ...done.map(i => itemEl(i, 'done'))] : null));
     }) : h('div', { class: 'empty-note' }, 'Nothing left in any project'));
     return [...bar, byProj];
   }

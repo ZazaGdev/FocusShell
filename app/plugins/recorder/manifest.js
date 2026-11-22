@@ -11,9 +11,10 @@ export default {
   name: 'Screen recorder',
   version: '0.4.0',
   api: 1,
-  icon: 'camera', // before its name in the Plugins list (#1030)
+  defaultOn: true, // on for a new install until the owner switches it off (#2919)
+  icon: 'camera', // before its name in the hidden Plugins screen (#2919)
   description: 'Records an area of the screen you mark and your voice, transcribes it with Whisper on this PC, and turns what you said into tasks, notes and reminders with screenshots.',
-  // labels: what its button on the Plugins screen says in each state of the title bar button.
+  // labels: what its button on the hidden Plugins screen (#2919) says in each state of the title bar button.
   button: { icon: 'dot', title: 'Record the screen', labels: { idle: 'Start recording', active: 'Stop recording', busy: 'Transcribing...', attention: 'Open the recording' } },
   shortcut: 'Control+Alt+R',
   uses: ['screen', 'mic', 'boards', 'claude', 'cto', 'sessions'],

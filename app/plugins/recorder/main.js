@@ -108,7 +108,7 @@ export function activate(host) {
   };
   const pruneTimer = setInterval(prune, 3600e3);
   host.onSettings(prune);
-  // Delete all recordings (Plugins > Screen recorder), except the one open in the recorder.
+  // Delete all recordings (Settings > Screen recorder), except the one open in the recorder.
   host.handle('deleteAll', () => ({ ...sweepAll(loadAll(root).filter(s => s && s.id && !(cur && cur.id === s.id)).map(s => s.id)), open: !!cur }));
 
   // Accept: the cards go on their boards one at a time, each marked placed as soon as it is
@@ -276,8 +276,8 @@ export function activate(host) {
     if (host.smoke) { host.log(`open ${what}`); return true; }
     return shell.openPath(f[what]).then(err => err === '');
   });
-  // Past recordings (#384), newest first, for the Recordings list in Plugins > Screen recorder
-  // and the Recorded videos modal (#1482). The open one is read from memory, so it is up to date.
+  // Past recordings (#384), newest first, for the Recorded videos modal (#1482) and the count in
+  // Settings > Screen recorder. The open one is read from memory, so it is up to date.
   host.handle('list', () => loadAll(root).filter(s => s && s.id).map(s => (cur && cur.id === s.id ? cur : s)).sort((a, b) => b.startedAt - a.startedAt).map(s => ({
     id: s.id, state: s.state, startedAt: s.startedAt, stoppedAt: s.stoppedAt, current: !!cur && cur.id === s.id, mic: s.mic !== false,
     cards: (s.cards || []).length, accepted: (s.cards || []).filter(c => c.status === 'accepted').length, open: (s.cards || []).filter(c => c.status === 'open').length,

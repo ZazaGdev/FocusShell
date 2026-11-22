@@ -1,7 +1,9 @@
 // The recorder's page side (#369): records the screen and the mic with MediaRecorder and
 // streams a chunk a second to the main side; draws the button and the screens from the state
-// the main side sends. The button (or the shortcut) starts a recording, stops it, or opens the
-// screen of the recording that is waiting.
+// the main side sends. The Record button (#2919) opens an intro that explains it and has Start
+// recording; while recording it stops, and while a recording waits it opens Recorded videos. The
+// shortcut and the floating bar's Stop start and stop at once, with no intro. The arrow beside
+// the button opens New recording, Recorded videos and the recorder's Settings card.
 import { buttonFor } from './lib/session.js';
 import { micLevel, micLit } from './lib/area.js';
 import { reviewScreen, shapeOf } from './screens/review.js';
@@ -23,14 +25,20 @@ export function mount(ui) {
   let seen = null;
   const paint = () => {
     const s = st.session, b = buttonFor(s, Date.now());
-    ui.button.set(b.state, b.state === 'attention' && s && seen === s.id ? '' : b.label);
+    ui.button.set(b.state, b.state === 'idle' ? 'Record' : b.state === 'attention' && s && seen === s.id ? '' : b.label);
     ui.button.el.dataset.tip = { active: 'Stop recording', busy: `Working in the background: ${(s && STEP_LABEL[s.step]) || 'processing'}. Click for the steps`, attention: 'The recording is ready to review' }[b.state] || 'Record the screen';
     if (b.state === 'active' && !tick) tick = setInterval(paint, 1000);
     if (b.state !== 'active' && tick) { clearInterval(tick); tick = null; }
   };
+  // How many recordings there are, for the arrow menu. Read again when a recording changes state.
+  let count = null, lastKey = '';
+  const refreshCount = () => ui.invoke('list').then(l => { if (Array.isArray(l)) count = l.length; });
   const show = next => {
     st = next || { session: null };
     if (screen && st.session && st.session.state === 'review') seen = st.session.id; // turned into the review in front of the owner
+    if (introModal && (st.session || cap)) introModal.close(); // a recording started another way
+    const key = st.session ? `${st.session.id} ${st.session.state}` : '';
+    if (key !== lastKey) { lastKey = key; refreshCount(); }
     paint();
     dropTerm();
     const s = st.session;
@@ -53,6 +61,7 @@ export function mount(ui) {
     const got = await ui.invoke('list');
     if (!screen || mode !== 'list') return;
     rows = Array.isArray(got) ? got : [];
+    if (Array.isArray(got)) count = got.length;
     const sh = 'list' + JSON.stringify([sel, rows, shapeOf(st), (st.session && st.session.done) || null, [...thumbs.entries()].map(([k, v]) => [k, !!v])]);
     if (!force && sh === shape) return;
     shape = sh;
@@ -210,6 +219,49 @@ export function mount(ui) {
     } finally { working = false; }
   }
 
+  // The Record button (#2919): with nothing recording or waiting, it explains the recorder first
+  // and the intro's Start recording starts; otherwise it does what the shortcut does.
+  function clicked() {
+    if (working) return;
+    if (!st.session && !cap) intro(); else toggle();
+  }
+
+  // The shortcut as keys, Control written Ctrl.
+  const keyNames = k => k.split('+').map(x => ({ Control: 'Ctrl', CommandOrControl: 'Ctrl', CmdOrCtrl: 'Ctrl' })[x] || x);
+  const keyText = k => (k ? keyNames(k).join('+') : '');
+
+  // ---------- the intro ----------
+  // Shown every time Record is clicked with nothing recording (#2919): what it is for, how to use
+  // it, and the button that actually starts.
+  let introModal = null;
+  function intro() {
+    if (introModal) return;
+    const key = ui.shortcut();
+    const stopWith = key ? h('span', {}, ' or with ', keyNames(key).flatMap((k, i) => [i ? '+' : null, h('kbd', {}, k)])) : null;
+    const go = async () => {
+      introModal.close();
+      if (working || st.session || cap) return;
+      working = true;
+      try { await start(); } finally { working = false; }
+    };
+    const startBtn = btn('Start recording', go, 'primary');
+    introModal = ui.kit.modal({
+      title: 'Screen recorder',
+      onClose: () => { introModal = null; },
+      body: h('div', { class: 'recintrobody' },
+        h('p', {}, 'Record part of your screen while you talk. FocusShell writes down what you say and turns it into tasks, notes and reminders, each with a screenshot.'),
+        h('ol', {},
+          h('li', {}, h('b', {}, 'Start recording'), ', then drag over the part of the screen to record and choose whether the mic is on.'),
+          h('li', {}, 'Talk through what you see. Hold Ctrl to draw on it.'),
+          h('li', {}, 'Stop from the floating bar', stopWith, '.'),
+          h('li', {}, 'It writes down what you said on this PC, in the background. The Record button lights up when the cards are ready.'),
+          h('li', {}, 'Review the cards. The ones you accept go onto their boards, and to the CTO if you ask.')),
+        h('div', { class: 'plugrow' }, btn('Cancel', () => introModal.close()), startBtn)),
+    });
+    introModal.el.classList.add('recintro');
+    startBtn.focus();
+  }
+
   // ---------- screens ----------
   const btn = (label, onclick, cls = '') => h('button', { class: 'btn ' + cls, onclick }, label);
 
@@ -311,21 +363,7 @@ export function mount(ui) {
     if (ok) await ui.invoke('discard', keep.checked);
   }
 
-  // ---------- Recordings (#384): past ones, in Plugins > Screen recorder ----------
-  const PAST_STATE = { recording: 'Recording now', processing: 'Transcribing', failed: 'Failed, waiting', review: 'Waiting for review', sending: 'Adding cards', done: 'Done', discarded: 'Discarded, files kept' };
-  const when = t => new Date(t).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const length = r => (r.stoppedAt && r.startedAt ? (s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`)(Math.round((r.stoppedAt - r.startedAt) / 1000)) : '');
-  function pastRow(r, close) {
-    const what = [PAST_STATE[r.state] || r.state, length(r), r.cards ? `${r.accepted} of ${r.cards} cards on the boards` : ''].filter(Boolean).join(' · ');
-    return h('div', { class: 'recpastrow', 'data-rec': r.id },
-      h('span', { class: 'recwhen' }, when(r.startedAt)), h('span', { class: 'sub' }, what),
-      r.current && r.state !== 'recording' ? btn('Open review', () => { close(); open(); }, 'primary') : null,
-      // Real buttons with icons (#394): plain words read as text. They sit on their own line.
-      h('div', { class: 'recacts' },
-        r.video ? btn([ui.icon('play'), 'Play video'], () => ui.invoke('openPast', r.id, 'video'), 'recopen') : null,
-        r.transcript ? btn([ui.icon('doc'), 'Open transcript'], () => ui.invoke('openPast', r.id, 'transcript'), 'recopen') : null,
-        btn([ui.icon('folder'), 'Open folder'], () => ui.invoke('openPast', r.id, 'folder'), 'recopen')));
-  }
+  // ---------- Settings > Screen recorder (#2919) ----------
   // Delete all recordings (#1030), after an "are you sure"; the one open in the recorder stays.
   async function deleteAll(fill) {
     const ok = await ui.kit.confirm({ title: 'Delete all recordings?', text: 'Every recording\'s video, sound and transcript are deleted. Board items keep their screenshots.', ok: 'Delete all', danger: true });
@@ -335,23 +373,40 @@ export function mount(ui) {
     ui.toast(`${r.deleted} ${r.deleted === 1 ? 'recording' : 'recordings'} deleted` + (r.failed ? `, ${r.failed} could not be` : '') + (r.open ? '. The one open in the recorder stays.' : ''), !!r.failed);
     fill();
   }
-  ui.panel(({ close }) => {
-    const box = h('section', { class: 'recpast', 'aria-label': 'Recordings' }, h('h4', {}, 'Recordings'), h('p', { class: 'sub' }, 'Loading...'));
-    const fill = () => ui.invoke('list').then(list => {
-      const rows = Array.isArray(list) ? list : [];
-      const head = h('div', { class: 'recpasthd' }, h('h4', {}, 'Recordings'),
-        rows.length ? btn([ui.icon('play'), 'Recorded videos'], () => { close(); open(); }, 'recopen recvideos') : null,
-        rows.some(r => !r.current) ? btn([ui.icon('trash'), 'Delete all recordings'], () => deleteAll(fill), 'recopen recdelall') : null);
-      box.replaceChildren(head, ...(rows.length ? rows.map(r => pastRow(r, close)) : [h('p', { class: 'sub' }, 'No recordings yet.')]));
-    });
+  // The last row of the recorder's Settings card: how many are kept, and Delete all recordings.
+  ui.panel(({ opt }) => {
+    const del = btn([ui.icon('trash'), 'Delete all recordings'], () => deleteAll(fill), 'recdelall');
+    const row = opt('Recordings', 'Loading...', del);
+    const help = row.querySelector('.l span');
+    function fill() {
+      return ui.invoke('list').then(list => {
+        const rows = Array.isArray(list) ? list : [];
+        if (Array.isArray(list)) count = list.length;
+        help.textContent = `${rows.length} kept. Board items keep their screenshots`;
+        del.disabled = !rows.some(r => !r.current);
+      });
+    }
     fill();
-    return box;
+    return row;
   });
 
-  ui.button.onClick(toggle);
+  // The arrow's menu (#2919): rows are read each time it opens.
+  ui.button.menu(() => {
+    const s = st.session, recording = !!cap || !!(s && s.state === 'recording'), key = keyText(ui.shortcut());
+    refreshCount();
+    return [
+      recording ? { label: 'Stop recording', icon: 'dot', hint: key, run: toggle }
+        : !s && !working ? { label: 'New recording', icon: 'dot', hint: key, run: intro } : null,
+      { label: 'Recorded videos', icon: 'camera', hint: count == null ? '' : String(count), run: open },
+      { label: 'Recorder settings', icon: 'gear', run: () => ui.openSettings() },
+    ];
+  }, 'Recorded videos and settings');
+
+  ui.button.onClick(clicked);
   ui.on('toggle', toggle);
   ui.on('state', show);
   ui.invoke('state').then(v => { if (v && !v.error) show(v); });
+  refreshCount();
 
   return {
     unmount() {

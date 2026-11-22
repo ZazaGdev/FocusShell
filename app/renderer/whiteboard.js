@@ -3,7 +3,7 @@
 // an option, typing, or the mic. The mic uses Windows voice typing, like a card's box, and
 // waits for Send (#414). Answers go to the CTO as "ANSWER <Project> #<n>: ...", the same as
 // from an opened card.
-import { whiteboardCards, cardCount, cardQuestion, answeredCard, scrollAnchor, ageLabel } from '../lib/whiteboard.js';
+import { whiteboardCards, cardCount, cardQuestion, answeredCard, scrollAnchor, ageLabel, columnCount, balanceColumns } from '../lib/whiteboard.js';
 import { cardLinks } from '../lib/links.js';
 import { linkChips, linkedText } from './textlinks.js';
 import { voiceInto, voiceDone } from './voice.js';
@@ -33,19 +33,13 @@ const mdView = (h, md) => readMarkdown(md).map(b => {
   return b.ul ? h('ul', {}, b.ul.map(li => h('li', {}, runs(li)))) : h('p', {}, runs(b.p));
 });
 
-// A card opens with its TLDR (#1000); the full text sits behind "more". [line, folded part]
-export function tldrFold(h, line, kids) {
-  const more = h('div', { class: 'wbmore', hidden: true }, kids.filter(Boolean));
-  const btn = h('button', { class: 'wbmorebtn', onclick: e => { e.stopPropagation(); more.hidden = !more.hidden; btn.textContent = more.hidden ? 'more' : 'less'; } }, 'more');
-  return [h('div', { class: 'wbtldr' }, h('span', {}, line), btn), more];
-}
-
 let modal = null, cur = null; // cur: the ctx the whiteboard was opened with
 let undo = null;             // the card just removed (#1168): { key, project, n, timer }
+let ro = null, usedCols = 1;  // the resize watcher, and the column count the current layout used (#3131)
 const built = new Map();      // "<Project>#<n>" -> { sig, el }: a card kept as it is while it has not changed (#1734)
 
 export const whiteboardOpen = () => !!modal;
-export function closeWhiteboard() { if (modal) { modal.remove(); modal = null; cur = null; } if (undo) { clearTimeout(undo.timer); undo = null; } built.clear(); }
+export function closeWhiteboard() { if (ro) { ro.disconnect(); ro = null; } if (modal) { modal.remove(); modal = null; cur = null; } if (undo) { clearTimeout(undo.timer); undo = null; } built.clear(); }
 export const waitingCount = (tasksMd, groups, mgr, skip, hidden) => cardCount(whiteboardCards(tasksMd, groups, mgr, skip, hidden));
 
 // ctx: { h, icon, deck, mgr, title, data() -> { tasksMd, groups, skip, hidden }, talk(project, n, text) -> bool, open(project, task),
@@ -114,7 +108,7 @@ function build(used) {
   for (const w of asks) if (!boards.some(b => b.project === w.project)) boards.unshift({ project: w.project, cards: [] });
   const asksOf = p => asks.filter(w => w.project === p), n = cardCount(boards) + asks.length;
   const body = n
-    ? h('div', { class: 'wbcols' }, boards.map(b => h('section', { class: 'wbproj' },
+    ? h('div', { class: 'wbcols' }, boards.map((b, i) => h('section', { class: 'wbproj', 'data-i': String(i) },
       h('h3', {}, b.project, h('span', {}, String(asksOf(b.project).length + b.cards.length))),
       asksOf(b.project).map(cur.promptCard), b.cards.map(c => card(b.project, c)))))
     : h('div', { class: 'wbempty' }, 'Nothing is waiting on you.');
@@ -125,6 +119,35 @@ function build(used) {
     h('div', { class: 'wbbody' }, body),
     undo ? h('div', { class: 'wbundo', role: 'status' }, `Removed ${undo.project} #${undo.n} from Waiting. It stays on its board.`,
       h('button', { class: 'btn', onclick: restore }, 'Undo')) : null));
+  balance();
+}
+
+// Balanced columns (#3131): the grid has just given each group the width of one column, so each
+// group's height is known; each then goes, in board order, into the shortest column. Runs before
+// restorePlace, which puts the owner's place and focus back after the move. One column needs none.
+function recount() {
+  const c = modal && modal.querySelector('.wbcols');
+  if (c && columnCount(c.clientWidth) !== usedCols) refreshWhiteboard();
+}
+function balance() {
+  usedCols = 1;
+  if (ro) ro.disconnect();
+  const bodyEl = modal.querySelector('.wbbody'), cols = modal.querySelector('.wbcols');
+  if (!bodyEl || !cols) return;
+  if (typeof ResizeObserver === 'function') {
+    // The redraw waits for the next frame: it observes a new body, which inside the callback makes
+    // the browser report an undelivered-notifications loop.
+    ro = ro || new ResizeObserver(() => requestAnimationFrame(recount));
+    ro.observe(bodyEl);
+  }
+  const n = columnCount(cols.clientWidth), secs = [...cols.children];
+  usedCols = n;
+  if (n < 2 || secs.length < 2) return;
+  const at = balanceColumns(secs.map(s => s.offsetHeight), n), { h } = cur;
+  const lanes = Array.from({ length: n }, () => h('div', { class: 'wbcol' }));
+  secs.forEach((s, i) => lanes[at[i]].append(s));
+  cols.append(...lanes);
+  cols.classList.add('balanced');
 }
 
 // A card removed from Waiting (#1168) only leaves this list; its task stays as it is on its board.
@@ -162,7 +185,7 @@ function card(project, { task: t, ask }) {
   const { h, icon, deck } = cur, key = `${project}#${t.n}`;
   const el = h('article', { class: 'wbcard', 'data-key': key }), add = (...kids) => el.append(...kids.filter(Boolean));
   const head = h('div', { class: 'wbmeta' }, h('span', { class: 'wbid' }, `#${t.n}`), h('span', { class: 'wbage', title: waitingOf(t) ? 'When it started waiting on you' : 'When it was added' }, ageLabel(waitingOf(t) || t.date)),
-    h('a', { href: '#', class: 'wbopen', title: 'Open the full card', onclick: e => { e.preventDefault(); const o = cur.open; closeWhiteboard(); o(project, t); } }, 'Open'),
+    h('a', { href: '#', class: 'wbopen', onclick: e => { e.preventDefault(); const o = cur.open; closeWhiteboard(); o(project, t); } }, 'Open'),
     h('button', { class: 'wbdrop', title: 'Remove from Waiting (it stays on its board)', 'aria-label': `Remove ${project} #${t.n} from Waiting`, onclick: () => remove(project, t.n, q) }, icon('x')));
   // Web links and paths in the card's text open on a click (#1045).
   const lopts = { openFile: cur.openMd, toast: cur.toast, before: closeWhiteboard };
@@ -172,7 +195,7 @@ function card(project, { task: t, ask }) {
   const links = linkChips(cardLinks(t), lopts);
 
   const hint = h('div', { class: 'wblisten' });
-  const stopListen = () => { if (el.classList.contains('listen')) voiceDone(); el.classList.remove('listen'); hint.replaceChildren(); };
+  const stopListen = () => { if (el.classList.contains('listen')) voiceDone(); el.classList.remove('listen'); hint.replaceChildren(); recount(); };
   const say = async text => {
     let s = String(text).replace(/\s+/g, ' ').trim();
     stopListen();
@@ -207,6 +230,7 @@ function card(project, { task: t, ask }) {
   const opts = v.options.length ? h('div', { class: 'wcopts' }, v.options.map(o => chip(o.key ? `${o.key}) ${o.text}` : o.text, o.key ? `${o.key}: ${o.text}` : o.text, o.suggested)))
     : v.suggestion ? h('div', { class: 'wcopts' }, chip(`Go with: ${v.suggestion}`, `go with the suggestion: ${v.suggestion}`, true)) : null;
   const proof = [v.effort ? h('span', { class: 'wcbadge', title: 'The effort level the lead ran this task at' }, `effort ${v.effort}`) : null,
+    v.helper ? h('span', { class: 'wcbadge', title: 'The builder agent that wrote the code: its model and effort' }, `helper ${v.helper}`) : null,
     v.tests ? h('span', { class: 'wcbadge' + (/^pass/i.test(v.tests) ? ' pass' : /^fail/i.test(v.tests) ? ' fail' : '') }, `tests ${v.tests}`) : null,
     ...v.commits.map(c => h('span', { class: 'wcbadge', title: 'Commit' }, c))].filter(Boolean);
   const detail = [md ? linked('p', 'wcsub', v.headline) : null, v.context ? linked('p', 'wcsub', v.context) : null,

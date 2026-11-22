@@ -114,5 +114,5 @@ export function waitingWatch(c) {
     typeLine(deck, m, line).then(r => toast(line.replace(/^WORDS /, '') + (r === 'held' ? ' (sent when your prompt is empty)' : '')));
   }
   const leadCard = w => (w.words ? wordsCard(h, w.words, deck, openTab, tellCto) : promptCard(h, w, deck, openTab, hide));
-  return { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords: list => { wordReqs = list || []; } };
+  return { waitingOn, askedOn, backOn, waitingLeads, leadCard, checkPromptAlerts, setWords: list => { wordReqs = list || []; }, wordReqs: () => wordReqs };
 }

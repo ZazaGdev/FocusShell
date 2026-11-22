@@ -2,9 +2,26 @@
 // session in ~/.claude/projects/<encoded folder>/<session id>.jsonl. The format is
 // internal to Claude Code, so unknown lines are skipped rather than trusted.
 
+import path from 'node:path';
+
 // "G:\Projects\Streaky" -> "G--Projects-Streaky"
 export function encodeProjectDir(folder) {
   return String(folder).replace(/[^A-Za-z0-9]/g, '-');
+}
+
+// Candidate Claude project folders for a pane's cwd (#3098): Claude Code names the folder
+// after the real path, so a cwd reached through a junction needs the resolved path first.
+// `real` resolves a path (fs.realpathSync.native); when it throws, the cwd as given is used.
+export function logDirs(projectsDir, cwd, real) {
+  let resolved = cwd;
+  try { resolved = String(real(cwd)).replace(/^\\\\\?\\/, ''); } catch { resolved = cwd; }
+  const seen = new Set(), out = [];
+  for (const p of [resolved, cwd]) {
+    const dir = path.join(projectsDir, encodeProjectDir(p));
+    const key = dir.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); out.push(dir); }
+  }
+  return out;
 }
 
 // Text that came from another session or the harness, not typed by the user.

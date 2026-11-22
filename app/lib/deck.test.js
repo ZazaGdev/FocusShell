@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { run } from './deckcli.js';
-import { parseTasks, doneOf, itemTags } from './tasks.js';
+import { parseTasks, doneOf, itemTags, startOf, tldrOf } from './tasks.js';
 import { dueOf, repeatOf, isSomeday } from './me.js';
 import { update } from './boardio.js';
 
@@ -74,6 +74,26 @@ test('deck Me items: due, repeat, someday, and a repeating one rolls instead of 
   assert.equal(isSomeday(item(c, 1001, 'Me')), true);
   run(['due', 'Me', '1001', '2026-10-20'], c); run(['due', 'Me', '1001', '-'], c);
   assert.equal(dueOf(item(c, 1001, 'Me')), null);
+});
+
+test('a start date: add --start, start replaces and clears it, bad dates refused (#2836)', () => {
+  const c = fresh();
+  run(['add', 'Demo', 'Later job', '--detail', 'first', '--tags', 'Research', '--start', '2026-11-12'], c);
+  let t = item(c, 1000);
+  assert.equal(t.details.at(-1), 'Start: 2026-11-12'); assert.equal(startOf(t), '2026-11-12');
+  assert.equal(run(['start', 'Demo', '1000', '2026-11-13'], c), 'Demo #1000 starts 2026-11-13');
+  t = item(c, 1000);
+  assert.deepEqual(t.details, ['first', 'Tags: Research', 'Start: 2026-11-13']);
+  assert.equal(run(['start', '1000', '-'], c), 'Demo #1000 has no start date');
+  assert.deepEqual(item(c, 1000).details, ['first', 'Tags: Research']);
+  run(['start', '1000', '2026-11-14'], c);
+  assert.equal(startOf(item(c, 1000)), '2026-11-14', 'a shared number needs no board');
+  assert.throws(() => run(['start', 'Demo', '1000', '2026-02-30'], c), /is not a date/);
+  assert.throws(() => run(['add', 'Demo', 'x', '--start', 'tomorrow'], c), /is not a date/);
+  assert.equal(tldrOf({ details: ['Start: 2026-11-12'] }).about, '');
+  run(['add', 'Demo', 'Prose job', '--detail', 'Start: from the login form'], c);
+  run(['start', '1001', '2026-11-12'], c); run(['start', '1001', '-'], c);
+  assert.deepEqual(item(c, 1001).details, ['Start: from the login form'], 'a prose Start: detail is not a start date');
 });
 
 test('a for-owner item made from a report reads on its own: What and To do lines (#236)', () => {
@@ -159,7 +179,7 @@ test('a stale lock from a writer that died is taken over', () => {
 });
 
 // ---------- the owner's words (#228) ----------
-import { parseRequest, sessionOfLead, ctoLine } from './ownerwords.js';
+import { parseRequest, sessionOfLead, ctoLine, boxStep, boxFailure, doneAllowed, paneClear } from './ownerwords.js';
 test('a words request is checked before it can become a card (#228)', () => {
   const now = Date.UTC(2026, 9, 7, 12);
   const ok = parseRequest('a1', JSON.stringify({ project: 'Cliptools', task: 18, words: String.raw`yes, edit C:\Users\me\.claude\skills\iterate\SKILL.md`, why: 'Edit outside its folder?', created: now }), now);
@@ -180,4 +200,38 @@ test('a words request is checked before it can become a card (#228)', () => {
   assert.equal(sessionOfLead('P', 'lead-P-5'), 'P:5'); assert.equal(sessionOfLead('P', 'lead-P-6'), 'P');
   assert.equal(ctoLine(ok, 'typed'), String.raw`WORDS Cliptools #18: the owner approved; typed into lead-Cliptools: "yes, edit C:\Users\me\.claude\skills\iterate\SKILL.md"`);
   assert.equal(ctoLine(ok, 'declined'), 'WORDS Cliptools #18: the owner declined; nothing typed into lead-Cliptools');
+});
+
+test('a words request typed after the click ends typed or says why not (#2991)', () => {
+  const r = { project: 'Cliptools', lead: 'lead-Cliptools', task: 18, words: 'yes' };
+  assert.equal(ctoLine(r, "not delivered: the words did not reach lead-Cliptools's conversation"),
+    "WORDS Cliptools #18: not typed: not delivered: the words did not reach lead-Cliptools's conversation");
+  assert.equal(ctoLine(r, 'no lead-Cliptools pane is open'), 'WORDS Cliptools #18: not typed: no lead-Cliptools pane is open');
+  assert.equal(ctoLine({ ...r, task: null }, 'expired'), 'WORDS Cliptools: not typed: expired');
+  // The box read after typing decides the next step.
+  assert.equal(boxStep('send', null), 'enter');
+  assert.equal(boxStep('owner', null), 'again');
+  assert.equal(boxStep('left', 'out'), 'out');
+  assert.equal(boxStep('left', 'keep'), 'keep');
+  assert.equal(boxStep('wait', null), 'keep');
+  assert.equal(boxFailure('keep', 'lead-Cliptools'), "not delivered: the words were left unsent in lead-Cliptools's box; send or clear them there");
+  assert.equal(boxFailure('out', 'lead-Cliptools'), "not delivered: the words could not be typed cleanly into lead-Cliptools's box");
+  // Only an empty box with no live prompt is clear for the words.
+  assert.equal(paneClear('', null), true);
+  assert.equal(paneClear(null, null), false);
+  assert.equal(paneClear('half written', null), false);
+  assert.equal(paneClear('', { kind: 'permission' }), false);
+  assert.equal(paneClear(null, null, true), true);
+  assert.equal(paneClear(null, { kind: 'permission' }, true), false);
+  assert.equal(paneClear('draft', null, true), false);
+  // Only outcomes the main process knows end a request.
+  assert.equal(doneAllowed('sent', 'typed'), true);
+  assert.equal(doneAllowed('held', 'typed'), false);
+  assert.equal(doneAllowed('typing', 'typed'), false);
+  assert.equal(doneAllowed('typing', "not delivered: the words could not be typed cleanly into lead-Cliptools's box"), true);
+  assert.equal(doneAllowed('sent', 'not delivered: '), false);
+  assert.equal(doneAllowed('sent', 'not delivered: two\nlines'), false);
+  assert.equal(doneAllowed('sent', `not delivered: ${'x'.repeat(300)}`), false);
+  assert.equal(doneAllowed('sent', 'declined'), false);
+  assert.equal(doneAllowed('sent', undefined), false);
 });

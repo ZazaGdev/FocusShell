@@ -5,21 +5,21 @@
 .plugbtn[data-plugin="recorder"][data-state="busy"] .i{border-radius:50%;border:1.5px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:recspin .9s linear infinite}
 @keyframes recspin{to{transform:rotate(360deg)}}
 .plugbtn[data-plugin="recorder"][data-state="attention"] .plugl:not(:empty){position:absolute;top:-4px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--miss);color:var(--accent-ink);font-size:10.5px;line-height:16px;font-weight:700;text-align:center}
-/* #384: the title bar circle shows only while a recording is running or waiting; Plugins starts one. */
-.plugbtn[data-plugin="recorder"][data-state="idle"]{display:none}
-.recpast{display:flex;flex-direction:column;gap:6px;margin-top:14px}
-.recpast h4{margin:0 0 4px;font-size:13px}
-.recpasthd{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.recpasthd h4{margin:0}
+/* #2919: the Record button always shows, its dot red while idle (the busy ring and the attention badge stay). */
+.plugbtn[data-plugin="recorder"][data-state="idle"] .i{color:var(--bad)}
+.plugbtn[data-plugin="recorder"][data-state="idle"] .i path{fill:currentColor}
+/* The intro (#2919): what the recorder is for and the steps, narrower than a video list. */
+.recintro .wbox{width:min(520px,100%)}
+.recintro .wbbody{padding:18px 20px}
+.recintrobody{display:flex;flex-direction:column;gap:14px}
+.recintro p{margin:0;color:var(--text2);line-height:1.5}
+.recintro ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--text2);line-height:1.45}
+.recintro li b{color:var(--text);font-weight:600}
+.recintro kbd{font:11px var(--mono);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:1px 5px;color:var(--text2);background:var(--surface2)}
+.recintro .plugrow{margin-top:4px}
 .recdelall{display:inline-flex;align-items:center;gap:6px}
+.recdelall .i{width:13px;height:13px}
 .recdelall:hover{border-color:var(--bad);color:var(--bad)}
-.recpastrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.recpastrow .recwhen{min-width:150px;font-variant-numeric:tabular-nums}
-.recpastrow .sub{flex:1}
-.recpastrow{padding:8px 0;border-top:1px solid var(--line)}
-.recpastrow .recacts{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap}
-.recpastrow .recopen{display:inline-flex;align-items:center;gap:6px}
-.recpastrow .recopen .i{width:13px;height:13px}
 /* #394: on its Plugins screen, Stop recording reads as stopping. */
 .plugstart[data-plugin="recorder"][data-state="active"]{background:var(--bad);border-color:var(--bad);color:#1a0b0b}
 .recwrap{display:flex;flex-direction:column;gap:14px;max-width:900px}

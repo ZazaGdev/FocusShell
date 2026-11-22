@@ -1,4 +1,4 @@
-// The first line of a Waiting on you or Maybe missed card (#1000): what the question is about,
+// The first line of a Waiting on you card (#1000): what the question is about,
 // in a few words. A card naming a task: "<Project> #<n> <task title>: <the ask, short>"; one
 // naming none: its question cut to about a dozen words. No Node imports.
 
@@ -16,19 +16,6 @@ export function cut(s, words) {
   const w = plain(s).split(' ').filter(Boolean);
   return w.length <= words ? w.join(' ') : w.slice(0, words).join(' ').replace(/[,;:]$/, '') + '...';
 }
-// A card's short summary (#1033): whole sentences, about three or four lines (max characters),
-// never cut mid-sentence or with "..." (#1038). A first sentence longer than max stays whole.
-export function gist(text, max = 260) {
-  // A sentence ends at . ! or ? before a space, so a dot inside a link or a version stays.
-  const sentences = plain(text).split(/(?<=[.!?])\s+/);
-  let out = '';
-  for (const s of sentences.map(x => x.trim()).filter(Boolean)) {
-    if (out && (out + ' ' + s).length > max) break;
-    out = out ? `${out} ${s}` : s;
-  }
-  return out;
-}
-
 // Never cut with "..." (#1038): the line wraps instead.
 export function tldr({ project, n, title, ask }) {
   const a = askOf(ask || '');

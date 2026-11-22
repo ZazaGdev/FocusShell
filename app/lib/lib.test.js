@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import './missed.test.js';
+import './outbuf.test.js';
 import './ctoline.test.js';
 import './catchup.test.js';
 import './talk.test.js';
@@ -18,10 +18,10 @@ import '../plugins/recorder/lib/ctrl.test.js';
 import '../plugins/recorder/lib/videos.test.js';
 import './leadsplit.test.js';
 import './tip.test.js';
-import { parseTasks, nextNumber, addTaskLine, projectState, optionsOf, parseNotes, addNoteLine } from './tasks.js';
+import { parseTasks, parsedTasks, nextNumber, addTaskLine, projectState, optionsOf, parseNotes, addNoteLine } from './tasks.js';
 import { LAYOUTS, slotCount, autoLayout, splitWith } from './layouts.js';
 import { parseProjects, trustedPaths, isTrusted, mergeProjects, projectForPath, paneColour, withProjectModel } from './projects.js';
-import { trimLink, findLinks, dropText, stretchCandidates, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer, textParts, cardLinks, stillPainted } from './links.js';
+import { trimLink, findLinks, dropText, stretchCandidates, findBareNames, folderHints, continuesRow, joinRows, crossedCuts, joinReadings, spacedReadings, wrappedUrl, opensInExplorer, isWebPage, textParts, cardLinks, stillPainted } from './links.js';
 import { OWN_APP_FILES } from './owntools.js';
 import { serveWebArgs, servePort, codeUrl, isCodeUrl, orphanServers, withTrusted } from './codeweb.js';
 import { uriPath, liveExtensions, extensionPlan, serverManifest, pageFiles, pageSyncScript, syncServer, machineSettings, themeBase } from './codesync.js';
@@ -45,6 +45,43 @@ test('parseTasks reads mark, number, text, date, who, result', () => {
   assert.match(t[0].result, /^Follow system/);
   assert.equal(t[1].mark, ' ');
   assert.equal(t[1].result, '');
+});
+
+test('parsedTasks: one parse per board while its text is the same; an edit replaces it, no old text kept (#2928)', () => {
+  const a = parsedTasks('Alpha', md);
+  assert.equal(parsedTasks('Alpha', md), a, 'the same object');
+  assert.equal(parsedTasks('Alpha', [md].join('')), a, 'the same text as a new string');
+  assert.deepEqual(a, parseTasks(md), 'the same as a fresh parse');
+  const changed = parsedTasks('Alpha', md + '\n- [ ] #9 Another (2026-10-02, user)\n');
+  assert.notEqual(changed, a);
+  assert.equal(changed.length, a.length + 1);
+  assert.notEqual(parsedTasks('Alpha', md), a, 'the old text was not kept: parsed again');
+  assert.notEqual(parsedTasks('Beta', md), parsedTasks('Alpha', md), 'each board its own parse');
+  const beta = parsedTasks('Beta', md);
+  for (let i = 0; i < 70; i++) parsedTasks(`Board${i}`, `- [ ] #${i} Item ${i}\n`);
+  assert.notEqual(parsedTasks('Beta', md), beta, 'pushed out by 70 other boards, parsed again');
+});
+
+import { changeOf, caseClash } from './datawatch.js';
+test('caseClash: a board name that differs only in case from a known one (#2928)', () => {
+  assert.equal(caseClash('alphaboard', ['AlphaBoard', 'Beta']), true, 'renamed by case');
+  assert.equal(caseClash('AlphaBoard', new Set(['alphaboard'])), true);
+  assert.equal(caseClash('AlphaBoard', ['AlphaBoard', 'Beta']), false, 'the same name');
+  assert.equal(caseClash('Gamma', ['AlphaBoard', 'Beta']), false, 'a new board');
+  assert.equal(caseClash('Gamma', []), false);
+});
+test('changeOf: a watcher event names one board or file, or everything (#2928)', () => {
+  assert.deepEqual(changeOf('tasks', 'Alpha.md'), { board: 'Alpha' });
+  assert.deepEqual(changeOf('tasks', 'Alpha.md.12256.tmp'), { board: 'Alpha' }, "boardio's temp file is its board");
+  assert.deepEqual(changeOf('ideas', 'Me.md.4410.tmp'), { file: 'ideas' });
+  assert.deepEqual(changeOf('goals', 'Me.md'), { file: 'goals' });
+  assert.deepEqual(changeOf('notes', 'notes.md'), { file: 'notes' });
+  assert.deepEqual(changeOf('tasks', 'Alpha.txt'), { all: true }, 'not a board');
+  assert.deepEqual(changeOf('tasks', 'Alpha.md~'), { all: true });
+  assert.deepEqual(changeOf('ideas', 'Other.md'), { all: true });
+  assert.deepEqual(changeOf('tasks', null), { all: true }, 'no name');
+  assert.deepEqual(changeOf('notes', ''), { all: true });
+  assert.deepEqual(changeOf('all', 'Alpha.md'), { all: true }, 'card notes and sketches');
 });
 
 test('parseTasks tolerates lines without date or result', () => {
@@ -217,6 +254,20 @@ test('renderLeadPrompt fills tokens with a test fallback', () => {
   assert.equal(renderLeadPrompt('{{MANAGER}}', 'A', 'f', ''), 'cto');
   assert.equal(renderLeadPrompt('node {{DECKCMD}} help', 'A', 'f', '', 'cto', 'D:\\Deck\\deck.mjs'), "node 'D:\\Deck\\deck.mjs' help", 'the deck command, quoted (#225)');
   assert.equal(renderLeadPrompt('{{MANAGER}} {{MANAGER}}', 'A', 'f', '', 'cto-Mobile'), 'cto-Mobile cto-Mobile');
+});
+
+test('renderLeadPrompt keeps the Light build block only for a light project (#3267)', () => {
+  for (const nl of ['\n', '\r\n']) {
+    const tpl = ['A', '', '<!-- light build -->', '## Light build', 'rule {{TEST}}', '<!-- /light build -->', '', 'B'].join(nl);
+    const light = renderLeadPrompt(tpl, 'P', 'f', 'npm test', 'cto', 'deck.mjs', 'light');
+    assert.equal(light, ['A', '', '## Light build', 'rule npm test', '', 'B'].join(nl));
+    assert.doesNotMatch(light, /light build -->/);
+    for (const b of ['', undefined, 'full']) {
+      assert.equal(renderLeadPrompt(tpl, 'P', 'f', 'npm test', 'cto', 'deck.mjs', b), ['A', '', 'B'].join(nl));
+    }
+  }
+  assert.equal(renderLeadPrompt('A\n\nB', 'P', 'f', 'x', 'cto', 'deck.mjs', 'light'), 'A\n\nB', 'no block, as before');
+  assert.equal(renderLeadPrompt('A\n\nB', 'P', 'f', 'x'), 'A\n\nB');
   assert.equal(renderGroupPrompt('{{MANAGER}}|{{GROUP}}|{{GROUPSFILE}}', 'Mobile', 'g.json'), 'cto-Mobile|Mobile|g.json');
 });
 
@@ -236,6 +287,19 @@ test('mergeProjects lists every folder, keeps settings by path, skips only the m
   assert.equal(m.find(p => p.name === 'BudgetlyV2').test, 'npm test');
   assert.equal(m.find(p => p.name === 'Budgetly').test, '');
   assert.equal(mergeProjects([], [{ name: 'manager', path: 'G:/S/FocusShell/manager' }], 'G:/S/FocusShell/manager').length, 0);
+});
+
+test('mergeProjects passes the light build setting, else empty (#3267)', () => {
+  const explicit = [
+    { name: 'Lite', path: 'G:/S/Lite', build: 'light' },
+    { name: 'Heavy', path: 'G:/S/Heavy', build: 'heavy' },
+    { name: 'Plain', path: 'G:/S/Plain' },
+    { name: 'FarLite', path: 'D:/x/FarLite', build: 'light' },
+  ];
+  const folders = ['Lite', 'Heavy', 'Plain'].map(n => ({ name: n, path: `G:/S/${n}` }));
+  const m = mergeProjects(explicit, folders, 'G:/S/manager');
+  const b = n => m.find(p => p.name === n).build;
+  assert.deepEqual([b('Lite'), b('Heavy'), b('Plain'), b('FarLite')], ['light', '', '', 'light']);
 });
 
 test('mergeProjects lists a folder once when two paths reach the same real folder', () => {
@@ -448,8 +512,8 @@ test('lastSession only when the previous run had project tabs', () => {
   assert.deepEqual(lastSession({ openTabs: ['A', 'B'], layoutId: 'm-2r', pinMgr: true }).projects, ['A', 'B']);
 });
 
-import { setMark, doneOf, historyLabel, itemTags, hasTag, toggleTag } from './tasks.js';
-import { encodeProjectDir, summarizeSession, lastConversation, paneConversation } from './history.js';
+import { setMark, doneOf, byClosed, historyLabel, itemTags, hasTag, toggleTag } from './tasks.js';
+import { encodeProjectDir, logDirs, summarizeSession, lastConversation, paneConversation } from './history.js';
 
 test('setMark changes only the numbered task', () => {
   const md = '# A tasks\n- [ ] #1 one (2026-10-01, user)\n- [~] #12 twelve (2026-10-01, lead-A)\n';
@@ -522,8 +586,24 @@ test('Me Done lists the latest closed first, then undated ones by number (#219)'
   assert.deepEqual(groupMe(parseTasks(md), new Date(2026, 9, 7)).done.map(t => t.n), [18, 5, 29, 28]);
 });
 
+test('byClosed sorts done items newest closed first, undated after (#2988)', () => {
+  const md = ['- [x] #29 a (2026-10-06, user)', '- [x] #18 b (2026-10-04, user)', '  > Done: 2026-10-07 13:00',
+    '- [x] #5 c (2026-10-01, user)', '  > Done: 2026-10-07 08:00', '- [x] #28 d (2026-10-06, user)', '- [x] #3 e (2026-10-01, user)', '  > Done: 2026-10-09'].join('\n');
+  assert.deepEqual(parseTasks(md).sort(byClosed).map(t => t.n), [3, 18, 5, 29, 28]);
+});
+
 test('encodeProjectDir matches Claude Code folder names', () => {
   assert.equal(encodeProjectDir(String.raw`G:\Projects\Papers`), 'G--Projects-Papers');
+});
+
+test('logDirs lists the real path folder first, then the cwd as given (#3098)', () => {
+  const root = path.join('home', 'projects');
+  const real = p => p.replace(/^G:/, 'D:');
+  assert.deepEqual(logDirs(root, String.raw`G:\X\Proj`, real), [path.join(root, 'D--X-Proj'), path.join(root, 'G--X-Proj')]);
+  assert.deepEqual(logDirs(root, String.raw`D:\X\Habitly`, p => p), [path.join(root, 'D--X-Habitly')]);
+  assert.deepEqual(logDirs(root, String.raw`D:\x\proj`, () => String.raw`D:\X\Proj`), [path.join(root, 'D--X-Proj')]);
+  assert.deepEqual(logDirs(root, String.raw`G:\X\Proj`, () => String.raw`\\?\D:\X\Proj`), [path.join(root, 'D--X-Proj'), path.join(root, 'G--X-Proj')]);
+  assert.deepEqual(logDirs(root, String.raw`G:\X\Proj`, () => { throw new Error('gone'); }), [path.join(root, 'G--X-Proj')]);
 });
 
 test('summarizeSession picks the first typed message and counts turns', () => {
@@ -759,6 +839,19 @@ test('links: a path after "Open in VS Code:" is marked to open in VS Code', () =
   assert.equal(findLinks(String.raw`open in vscode: "D:\My Files\a b.txt"`)[0].code, true);
 });
 
+test('links: a web page path is never marked for VS Code, so a click opens the browser', () => {
+  const page = String.raw`D:\Projects\Sample\output\report.html`;
+  const after = findLinks(`Open in VS Code: ${page}`);
+  assert.deepEqual(after.map(l => l.text), [page]);
+  assert.equal(!!after[0].code, false);
+  assert.equal(!!findLinks(`see ${page}`)[0].code, false);
+  assert.equal(findLinks(String.raw`Open in VS Code: D:\Projects\Sample\notes.md`)[0].code, true);
+  assert.equal(isWebPage('a.html'), true);
+  assert.equal(isWebPage('B.HTM'), true);
+  assert.equal(isWebPage('a.md'), false);
+  assert.equal(isWebPage('a.png'), false);
+});
+
 test('projectForPath finds the deepest project folder holding a path', () => {
   const ps = [{ name: 'A', path: String.raw`G:\S\A` }, { name: 'Inner', path: String.raw`G:\S\A\sub` }, { name: 'AB', path: String.raw`G:\S\AB` }];
   assert.equal(projectForPath(ps, String.raw`g:/s/a/src/x.js`).name, 'A');
@@ -800,9 +893,8 @@ test('settings: unknown or bad values fall back to defaults', () => {
   assert.deepEqual([p.theme, p.space, p.font], ['nord', 'spacious', 'plex']);
   const q = normalizeSettings({ theme: 'neon', space: 'huge', font: 'Comic Sans' });
   assert.deepEqual([q.theme, q.space, q.font], ['graphite', 'normal', 'inter']);
-  // Maybe missed above the CTO (#1101): on unless switched off
-  assert.equal(normalizeSettings({}).showMissed, true);
-  assert.equal(normalizeSettings({ showMissed: false }).showMissed, false);
+  // Maybe missed was removed (#3071): an old saved switch is dropped on load
+  assert.equal('showMissed' in normalizeSettings({ showMissed: false }), false);
   assert.equal(normalizeSettings({}).showTavern, true);
   assert.equal(normalizeSettings({ showTavern: false }).showTavern, false);
   const s =normalizeSettings({ pmDock: 'bottom', pmSize: 5000, pmFolded: true, sideSplit: 2, foldPm: true });
@@ -1071,6 +1163,24 @@ test('whiteboardCards: waiting items of one CTO, sorted by priority, then age; p
   assert.equal(main[1].cards[2].ask.suggest, 'x');
   assert.equal(cardCount(main), 4);
   assert.deepEqual(whiteboardCards(tasks, groups, 'cto-Grp').map(g => g.project), ['G']);
+});
+
+test('balanceColumns: each group goes into the shortest column, ties go left (#3131)', async () => {
+  const { balanceColumns, columnCount } = await import('./whiteboard.js');
+  // One tall group and three short ones in 3 columns: the short ones fill the other columns first.
+  assert.deepEqual(balanceColumns([900, 100, 100, 100], 3), [0, 1, 2, 1]);
+  // Once the short columns pass the tall one, the next group goes under the shortest.
+  assert.deepEqual(balanceColumns([300, 100, 100, 100, 100, 100], 3), [0, 1, 2, 1, 2, 1]);
+  assert.deepEqual(balanceColumns([500], 3), [0]);
+  assert.deepEqual(balanceColumns([100, 100], 5), [0, 1]);
+  assert.deepEqual(balanceColumns([100, 100, 100], 1), [0, 0, 0]);
+  assert.deepEqual(balanceColumns([], 3), []);
+  assert.equal(columnCount(1280), 3);
+  assert.equal(columnCount(760), 2);
+  assert.equal(columnCount(300), 1);
+  assert.equal(columnCount(0), 1);
+  assert.equal(columnCount(356), 1);
+  assert.equal(columnCount(712), 2);
 });
 
 test('whiteboardCards: a card the owner removed stays off until its question changes (#1168)', async () => {
@@ -1790,6 +1900,8 @@ import './worktrees.test.js';
 import './shell.test.js';
 import './macpaths.test.js';
 import './deckpanes.test.js';
+import './context.test.js';
+import './quietrun.test.js';
 
 import { inputDraft } from './prompts.js';
 
@@ -1803,6 +1915,38 @@ test('prompts: the owner\'s unsent draft in the input box (#243)', () => {
   assert.equal(inputDraft(['> ANSWER #23: show it live first', '  ⎿ sent']), null);
   assert.equal(inputDraft([rule, '> 1. Yes', '  2. No']), null);
   assert.equal(inputDraft(['D:\Projects\FocusShell>']), null);
+});
+
+import { boxEdge } from './prompts.js';
+import { paneClear } from './ownerwords.js';
+import { voiceLive } from './ctoline.js';
+test('prompts: a pane started with -n shows its name in the box\'s top rule (#3015)', () => {
+  const plain = '─'.repeat(58);
+  const named = '─'.repeat(40) + ' lead-Sample-4 ─';
+  const foot = ['  Opus 5.5 · xhigh                                 ctx 22%', '  ⏵⏵ auto mode on · ← 1 agent', '  ● main', '  ● worker-1 running tests'];
+  const screen = (top, line) => ['● ok', '', top, line, plain, ...foot];
+  assert.equal(inputDraft(screen(named, '> ')), '', 'empty named box');
+  assert.equal(inputDraft(screen(named, '> half written')), 'half written');
+  assert.equal(inputDraft(screen(plain, '> ')), '', 'an unnamed rule still works');
+  assert.equal(livePrompt(screen(named, '> ')), null);
+  assert.equal(paneClear(inputDraft(screen(named, '> ')), livePrompt(screen(named, '> '))), true);
+  assert.equal(paneClear(inputDraft(screen(named, '> half')), null), false);
+  // The closing edge can carry a label too; a label at the left or cut short counts as well.
+  assert.equal(inputDraft(['', named, '> a', 'b', named, foot[0]]), 'a\nb');
+  assert.equal(inputDraft(['', 'lead-Sample-4 ' + '─'.repeat(30), '> ', plain]), '');
+  assert.equal(inputDraft(['', '─'.repeat(30) + ' lead-Sa', '> ', plain]), '');
+  // Words with a few dashes in them are not a box edge.
+  assert.equal(boxEdge('Total ─── done'), false);
+  assert.equal(boxEdge('── lead-X ──'), false);
+  assert.equal(boxEdge('Server ready ' + '─'.repeat(3)), false, 'fewer than 6 rule characters');
+  assert.equal(inputDraft(['The sample ─── notes', '> typed words']), null);
+  // Voice: the dictation row sits above a named top rule too.
+  const rows = [...Array(10).fill(''), ' '.repeat(98) + 'listening…', named, '❯ ', plain, ...foot];
+  assert.equal(voiceLive(rows), true);
+  assert.equal(voiceLive(rows.map(l => l === ' '.repeat(98) + 'listening…' ? '' : l)), false);
+  // Background work reads the same footer as before.
+  assert.equal(backgroundWork(screen(named, '> ')), null);
+  assert.equal(backgroundWork(screen(named, '> ').map(l => l === foot[1] ? '  ⏵⏵ auto mode on · 1 shell · ← 1 agent' : l)), '1 shell');
 });
 
 import { navHistory, MAX_STEPS } from './navhistory.js';

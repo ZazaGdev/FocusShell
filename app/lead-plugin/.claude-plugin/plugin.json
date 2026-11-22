@@ -1,5 +1,5 @@
 {
   "name": "focusshell",
   "version": "1.0.0",
-  "description": "FocusShell's lead skills: set the effort level for the task in hand (#2681). Loaded only into lead panes, with --plugin-dir."
+  "description": "FocusShell's lead plugin, loaded only into lead panes with --plugin-dir: the effort skills that set the level for the task in hand (#2681) and the builder agent that writes the code from a lead's plan (#2780), and the quiet-runs hook that shortens a passing Bash test run or build to its counts and passes a failure through complete (#3073)."
 }

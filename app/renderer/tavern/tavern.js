@@ -99,8 +99,13 @@ const robotPic = robot => new URL(`./room/art/sprites/robot-${robot}.png`, impor
 async function openTavern() {
   if (!shade) build();
   shade.hidden = false;
+  // The helpers are asked for only while it is open (#2928): ask now, so they are in place too.
+  await c.beforeOpen?.();
+  if (!tavernOpen()) return; // closed while it waited: stay asleep
   const first = !booting;
   await boot();
+  // Closed while the room was first made: the new game starts awake, so it goes to sleep (#1066).
+  if (!tavernOpen()) { if (game) { game.input.enabled = false; game.loop.sleep(); } return; }
   game.loop.wake();
   game.input.enabled = true;
   showLight();

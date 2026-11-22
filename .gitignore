@@ -10,3 +10,7 @@ tavern/node_modules/
 app/renderer/tavern/room/
 app/build/seed/
 app/native/bin/
+
+# The recorder's frames (linked from the boards, kept on disk only) and Playwright output (#2936)
+screenshots/
+.playwright-mcp/

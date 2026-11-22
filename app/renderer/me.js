@@ -36,7 +36,7 @@ export function renderMe(c) {
   const open = rel => openSavedSketch({ rel, project: ME, name: sketchName(rel), onSaved: () => loadShelf(c) });
   // A board on a card: click to open it, x to take it off that card.
   const badge = (rel, item) => h('span', { class: 'skb' },
-    h('button', { title: `Open the sketch "${sketchName(rel)}"`, onclick: e => { e.stopPropagation(); open(rel); } }, icon('pen'), sketchName(rel)),
+    h('button', { onclick: e => { e.stopPropagation(); open(rel); } }, icon('pen'), sketchName(rel)),
     h('button', { class: 'skx', title: 'Take this sketch off', onclick: e => { e.stopPropagation(); c.apply(deck.sketchDetach(item, rel)); } }, icon('x')));
   const dropOn = (el, item) => {
     el.ondragover = e => { if (e.dataTransfer.types.includes(DRAG)) { e.preventDefault(); el.classList.add('skdrop'); } };
@@ -123,7 +123,7 @@ export function renderMe(c) {
   const newSketch = () => openSavedSketch({ project: ME, name: `Sketch ${new Date().toLocaleDateString('sv')}`, onSaved: () => loadShelf(c) });
   const right = h('div', { class: 'mecol mer' },
     h('div', { class: 'melab' }, 'Sketches', h('small', {}, String(shelf.length))),
-    h('div', { class: 'note-add' }, h('button', { class: 'btn', title: 'Draw a new sketch', onclick: newSketch }, icon('pen'), 'New sketch')),
+    h('div', { class: 'note-add' }, h('button', { class: 'btn', onclick: newSketch }, icon('pen'), 'New sketch')),
     shelf.length ? h('div', { class: 'shelf' }, shelf.map(s => {
       const uses = usesOf(s.rel, data);
       return h('div', { class: 'shelfit', draggable: 'true', title: 'Click to open. Drag onto a to-do, idea or note to attach it.',

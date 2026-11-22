@@ -63,6 +63,24 @@ test('cardview: a DONE line\'s effort part is its own field, not part of the res
   assert.equal(cardView(t, askOf(t)).effort, 'max');
 });
 
+test('cardview: a DONE line\'s helper part is its own field, not part of the result (#2780)', () => {
+  const r = reportParts('DONE #8 | added truncate | effort: medium | helper: Sonnet  Medium | tests: pass | commit: abc1234');
+  assert.equal(r.helper, 'sonnet medium');
+  assert.equal(r.effort, 'medium');
+  assert.deepEqual(r.body, ['added truncate']);
+  const none = reportParts('DONE #8 | x | effort: low | helper: none | tests: pass');
+  assert.equal(none.helper, '');
+  assert.deepEqual(none.body, ['x'], 'helper: none leaves nothing in the result');
+  assert.equal(reportParts('DONE #8 | x | helper: a big one | tests: pass').helper, '');
+  assert.equal(reportParts('DONE #8 | x | tests: pass').helper, '');
+  const t = one(`- [?] #8 Truncate (2026-11-10, lead-C) -> added
+  > Result: DONE #8 | added truncate | effort: high | helper: opus xhigh | tests: pass | commit: abc1234`);
+  const v = cardView(t, askOf(t));
+  assert.equal(v.helper, 'opus xhigh');
+  assert.equal(v.effort, 'high');
+  assert.doesNotMatch(JSON.stringify(v.groups), /helper/);
+});
+
 test('cardsummary: the key changes only with the card text, and the input leaves out bookkeeping lines', () => {
   const t = one('- [?] #4 A (2026-10-22, lead-A) -> x\n  > Result: NEEDS YOU #4 | which? | options: a, b\n  > Done: 2026-10-22 10:00');
   assert.equal(summaryKey('P', t), summaryKey('P', one('- [?] #4 A (2026-10-22, lead-A) -> x\n  > Result: NEEDS YOU #4 | which? | options: a, b')));

@@ -1,7 +1,11 @@
 // The app's tooltip (#1035). Run through lib.test.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitTip, placeTip, MARGIN, GAP } from './tip.js';
+import { splitTip, placeTip, MARGIN, GAP, DELAY } from './tip.js';
+
+test('tooltip: waits at least 2 seconds (#2987)', () => {
+  assert.ok(DELAY >= 2000);
+});
 
 test('tooltip: a trailing shortcut in brackets is split off', () => {
   assert.deepEqual(splitTip('Find in this pane (Ctrl+Shift+F)'), { label: 'Find in this pane', key: 'Ctrl+Shift+F' });

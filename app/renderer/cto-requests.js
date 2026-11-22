@@ -5,12 +5,15 @@ import { toast } from './dom.js';
 import { splitWith } from '../lib/layouts.js';
 import { groupOf, findGroup, viewFor } from '../lib/groups.js';
 import { extraId } from '../lib/sessions.js';
-import { opensInExplorer } from '../lib/links.js';
+import { opensInExplorer, isWebPage } from '../lib/links.js';
 
 // c: the app's state as getters and setters (projects, openTabs, groups, groupViews, view,
 // single, ctx, splitSet, layoutId, openError) and its actions.
 export function ctoRequests(c) {
   const { deck, started, paneModel, showLead, extrasOf, proj, tasksOf, isActive, openTab, openExtra, closeTab, closeExtra, render } = c;
+  // An extra lead counts as busy while it runs a background subagent or shell too (#2706), such
+  // as a builder after its lead ended the turn (#2780): closing it would kill that run.
+  const busyNow = id => isActive(id) || !!c.backOn?.has(id);
   // The CTO closes a lead with close-pane.ps1. A lead that is busy or has a task in progress
   // stays open unless the request says force; the answer goes back to the script.
   // With extra leads open, closing the first keeps the tab for them; -Lead <n> closes only
@@ -22,7 +25,7 @@ export function ctoRequests(c) {
     if (n > 1) {
       const sid = extraId(id, n), lead = `lead-${id}-${n}`;
       if (!started.has(sid)) { reply(`${lead} is not open, nothing to close.`); return; }
-      if (!force && !T.isExited(sid) && isActive(sid)) { reply(`Not closed: ${lead} is busy right now. Ask the user, then run again with -Force to close it anyway.`); return; }
+      if (!force && !T.isExited(sid) && busyNow(sid)) { reply(`Not closed: ${lead} is busy right now. Ask the user, then run again with -Force to close it anyway.`); return; }
       const note = await closeExtra(id, n);
       reply(`Closed ${lead}.${note ? ' ' + note : ''}`); toast(`Closed ${id} ${n} at the CTO's request`);
       return;
@@ -99,6 +102,7 @@ export function ctoRequests(c) {
       const f = /^https?:/i.test(file) || opensInExplorer(file) ? null : await deck.fileAt(file);
       if (!f) {
         const shown = !/^https?:/i.test(file) && await deck.openPath(file);
+        if (shown && isWebPage(file)) { reply(`Opened in the browser: ${file}`); return; }
         reply(shown ? `Shown in File Explorer: ${file} (a folder, or a file the Code pane does not open).` : `Failed: there is no file or folder at ${file}.`);
         return;
       }

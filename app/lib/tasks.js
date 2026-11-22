@@ -32,6 +32,26 @@ export function parseTasks(md) {
   return out;
 }
 
+// The page's parse of a board (#2928), shared by every reader: the page parsed each board again
+// for every count, card and summary on its timers, about 5 ms a second. One parse per board,
+// used while the board's text is the same; an edit replaces it, so no old text is kept (the
+// big boards are a few MB each with their parse). Read-only: never sort, splice or assign into
+// what it returns (copy first), or every reader sees it.
+const PARSED_MAX = 64; // boards; past that, the one parsed longest ago goes first
+const parsed = new Map(); // board name -> { md, tasks }
+export function parsedTasks(name, md) {
+  const text = String(md), hit = parsed.get(name);
+  if (hit && hit.md === text) {
+    hit.md = text; // the same text, often a new string: the next check is then by reference
+    return hit.tasks;
+  }
+  const tasks = parseTasks(text);
+  parsed.delete(name);
+  parsed.set(name, { md: text, tasks });
+  if (parsed.size > PARSED_MAX) parsed.delete(parsed.keys().next().value);
+  return tasks;
+}
+
 export function nextNumber(md) {
   return parseTasks(md).reduce((a, t) => Math.max(a, t.n), 0) + 1;
 }
@@ -119,6 +139,9 @@ export function doneOf(task) {
   for (const d of task.details || []) { const m = d.match(/^Done:\s*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)\s*$/i); if (m) return m[1]; }
   return '';
 }
+// Done items newest closed first (#2988); items with no Done line come after the dated ones,
+// newest added first, then by number.
+export const byClosed = (a, b) => doneOf(b).localeCompare(doneOf(a)) || (b.date || '').localeCompare(a.date || '') || b.n - a.n;
 // Tags (#224): "  > Tags: Research, Video" under an item, the ideas deck's line. They show as
 // badges and boards filter by them; the list to pick from is in Settings.
 export function itemTags(task) {
@@ -213,6 +236,25 @@ export function addDetail(md, n, text) {
   return [...lines.slice(0, end), `  > ${clean}`, ...lines.slice(end)].join('\n');
 }
 
+// The day the CTO may hand an item out, "YYYY-MM-DD" from its "  > Start:" line, or '' (#2836).
+export function startOf(task) {
+  for (const d of task.details || []) { const m = d.match(/^Start:\s*(\d{4}-\d{2}-\d{2})\s*$/i); if (m) return m[1]; }
+  return '';
+}
+// Sets task n's Start line to `day` where it is, or after its last detail; '' removes it (#2836).
+export function setStart(md, n, day) {
+  const lines = String(md).split(/\r?\n/);
+  const i = lines.findIndex(l => { const m = l.match(TASK_RE); return m && Number(m[2]) === Number(n); });
+  if (i < 0) return md;
+  let end = i + 1;
+  while (end < lines.length && DETAIL_RE.test(lines[end])) end++;
+  const at = lines.findIndex((l, k) => k > i && k < end && /^\s+> ?Start:\s*\d{4}-\d{2}-\d{2}\s*$/i.test(l));
+  const line = `  > Start: ${day}`;
+  if (at >= 0) { if (day) lines[at] = line; else lines.splice(at, 1); }
+  else if (day) lines.splice(end, 0, line);
+  return lines.join('\n');
+}
+
 // Reword one task, keeping its mark, number, date, owner and result.
 export function setTaskText(md, n, text) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
@@ -305,7 +347,7 @@ export function parseAsk(text) {
 export function tldrOf(task) {
   const plain = s => String(s || '').replace(/\[screenshot:[^\]]*\]\s*/gi, '').replace(/^Your words:\s*/i, '').trim();
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s);
-  const words = (task.details || []).map(plain).find(d => d && !/^(Result|Owner chose|Priority|Due|Version|Waiting):/i.test(d)) || '';
+  const words = (task.details || []).map(plain).find(d => d && !/^(Result|Owner chose|Priority|Due|Version|Waiting|Start):/i.test(d)) || '';
   const results = (task.details || []).filter(d => /^Result:/i.test(d)).map(d => plain(d.replace(/^Result:\s*/i, '')));
   const last = results.length ? results[results.length - 1] : plain(task.result);
   return { about: cut(words, 220), last: cut(last, 220) };
